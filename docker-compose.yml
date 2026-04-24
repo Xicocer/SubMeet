@@ -1,0 +1,98 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: diploma-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - diploma-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: diploma-rabbitmq
+    restart: unless-stopped
+    profiles:
+      - docker-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - diploma-network
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./services/auth-service:/var/www
+    environment:
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: submeet_auth
+      DB_USERNAME: diploma
+      DB_PASSWORD: secret
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mysql
+    networks:
+      - diploma-network
+
+  event-service:
+    build:
+      context: ./services/event-service
+      dockerfile: Dockerfile
+    container_name: event-service
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./services/event-service:/var/www
+    environment:
+      APP_URL: http://localhost:8001
+      AUTH_SERVICE_URL: http://auth-service:8000/api
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: submeet_event
+      DB_USERNAME: diploma
+      DB_PASSWORD: secret
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+    ports:
+      - "8001:8000"
+    depends_on:
+      - mysql
+    networks:
+      - diploma-network
+
+  frontend:
+    image: node:22-alpine
+    container_name: diploma-frontend
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./frontend/vue-project:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    networks:
+      - diploma-network
+
+volumes:
+  mysql_data:
+
+networks:
+  diploma-network:
+    driver: bridge

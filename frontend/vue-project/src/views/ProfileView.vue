@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import type { UpdateProfilePayload } from '@/types/auth'
+import { formatDate, formatDateForInput, getInitials } from '@/utils/format'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -16,51 +17,24 @@ const form = reactive<UpdateProfilePayload>({
 })
 
 const user = computed(() => authStore.user)
-
-const formatDate = (value?: string | null) => {
-  if (!value) return 'Не указано'
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Не указано'
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(date)
-}
-
-const initials = computed(() => {
-  if (!user.value?.full_name) return 'SU'
-
-  return user.value.full_name
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
-})
-
-const roleLabel = computed(() => user.value?.role?.role || 'Пользователь')
+const initials = computed(() => getInitials(user.value?.full_name))
+const roleLabel = computed(() => (authStore.isOrganizer ? 'Организатор' : 'Пользователь'))
 const statusLabel = computed(() => (user.value?.status === 1 ? 'Активен' : 'Ограничен'))
-const statusClasses = computed(() =>
-  user.value?.status === 1
+const memberSinceLabel = computed(() => formatDate(user.value?.created_at))
+
+const statusClasses = computed(() => {
+  return user.value?.status === 1
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : 'border-amber-200 bg-amber-50 text-amber-700'
-)
-const birthDateLabel = computed(() => formatDate(user.value?.birth_date))
-const memberSinceLabel = computed(() => formatDate(user.value?.created_at))
+})
+
 const hasChanges = computed(() => {
   if (!user.value) return false
 
   return (
     form.full_name !== user.value.full_name ||
     form.phone !== user.value.phone ||
-    form.birth_date !== (user.value.birth_date?.slice(0, 10) || '')
+    form.birth_date !== formatDateForInput(user.value.birth_date)
   )
 })
 
@@ -69,7 +43,7 @@ const syncForm = () => {
 
   form.full_name = authStore.user.full_name
   form.phone = authStore.user.phone
-  form.birth_date = authStore.user.birth_date?.slice(0, 10) || ''
+  form.birth_date = formatDateForInput(authStore.user.birth_date)
 }
 
 const loadProfile = async () => {
@@ -95,16 +69,11 @@ const updateProfile = async () => {
   }
 }
 
-const logout = async () => {
-  await authStore.logout()
-  router.push('/login')
-}
-
 watch(
   () => authStore.user,
   () => {
     syncForm()
-  }
+  },
 )
 
 onMounted(loadProfile)
@@ -113,10 +82,10 @@ onMounted(loadProfile)
 <template>
   <section v-if="authStore.loading && !user" class="app-panel p-8 sm:p-10">
     <div class="flex items-center gap-4">
-      <div class="h-14 w-14 animate-pulse rounded-3xl bg-slate-200"></div>
+      <div class="h-16 w-16 animate-pulse rounded-[1.5rem] bg-slate-200"></div>
       <div class="space-y-3">
         <div class="h-4 w-40 animate-pulse rounded-full bg-slate-200"></div>
-        <div class="h-4 w-56 animate-pulse rounded-full bg-slate-100"></div>
+        <div class="h-4 w-60 animate-pulse rounded-full bg-slate-100"></div>
       </div>
     </div>
     <p class="mt-6 text-sm text-slate-500">Загружаем данные профиля...</p>
@@ -124,15 +93,13 @@ onMounted(loadProfile)
 
   <div v-else class="grid gap-6 xl:grid-cols-[340px_1fr]">
     <aside class="app-panel overflow-hidden">
-      <div class="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 px-8 py-8 text-white">
+      <div class="bg-gradient-to-br from-slate-950 via-slate-900 to-sky-900 px-8 py-8 text-white">
         <div class="flex items-start justify-between gap-4">
-          <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/10 text-2xl font-semibold">
+          <div class="flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-white/10 text-2xl font-semibold">
             {{ initials }}
           </div>
 
-          <div
-            class="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/80"
-          >
+          <div class="status-badge border-white/15 bg-white/10 text-white/85">
             {{ statusLabel }}
           </div>
         </div>
@@ -147,33 +114,33 @@ onMounted(loadProfile)
 
       <div class="space-y-4 p-6">
         <article class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">Роль</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Роль</p>
           <p class="mt-3 text-lg font-semibold text-slate-900">{{ roleLabel }}</p>
         </article>
 
         <article class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">Статус</p>
-          <div
-            class="mt-3 inline-flex rounded-full border px-3 py-1 text-sm font-semibold"
-            :class="statusClasses"
-          >
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Статус</p>
+          <div class="status-badge mt-3" :class="statusClasses">
             {{ statusLabel }}
           </div>
         </article>
 
         <article class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">Телефон</p>
-          <p class="mt-3 text-sm leading-6 text-slate-600">
-            {{ user?.phone || 'Не указан' }}
-          </p>
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">В системе с</p>
+          <p class="mt-3 text-sm leading-6 text-slate-600">{{ memberSinceLabel }}</p>
         </article>
 
-        <button
-          @click="logout"
-          class="inline-flex w-full items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3.5 font-semibold text-rose-700 transition duration-200 hover:bg-rose-100 focus:outline-none focus:ring-4 focus:ring-rose-200/60"
+        <RouterLink
+          v-if="authStore.isOrganizer"
+          to="/organizer/events"
+          class="secondary-button w-full"
         >
-          Выйти
-        </button>
+          Открыть кабинет организатора
+        </RouterLink>
+
+        <RouterLink v-else to="/events" class="secondary-button w-full">
+          Перейти в афишу
+        </RouterLink>
       </div>
     </aside>
 
@@ -181,41 +148,35 @@ onMounted(loadProfile)
       <div class="flex flex-col gap-6 border-b border-slate-200/70 pb-8 lg:flex-row lg:items-end lg:justify-between">
         <div class="max-w-2xl">
           <span class="info-chip">Личный кабинет</span>
-          <h2 class="mt-4 text-3xl font-semibold leading-tight text-slate-900">
-            Профиль пользователя в аккуратной рабочей панели
+          <h2 class="mt-4 text-3xl font-semibold leading-tight text-slate-950">
+            Профиль пользователя, связанный с auth-service
           </h2>
           <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-            Здесь можно обновить основные данные, посмотреть статус учетной записи и
-            быстро сверить важную информацию.
+            Здесь можно обновить базовые данные аккаунта и быстро проверить роль, статус и дату
+            регистрации.
           </p>
         </div>
 
         <div class="grid gap-3 sm:grid-cols-3">
-          <article
-            class="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 shadow-sm shadow-slate-900/5"
-          >
-            <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">Email</p>
+          <article class="rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5">
+            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Email</p>
             <p class="mt-2 text-sm font-semibold text-slate-900">
               {{ user?.email || 'Не указан' }}
             </p>
           </article>
 
-          <article
-            class="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 shadow-sm shadow-slate-900/5"
-          >
-            <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <article class="rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5">
+            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
               Дата рождения
             </p>
-            <p class="mt-2 text-sm font-semibold text-slate-900">{{ birthDateLabel }}</p>
+            <p class="mt-2 text-sm font-semibold text-slate-900">
+              {{ formatDate(user?.birth_date) }}
+            </p>
           </article>
 
-          <article
-            class="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 shadow-sm shadow-slate-900/5"
-          >
-            <p class="text-xs font-semibold uppercase tracking-widest text-slate-500">
-              В системе с
-            </p>
-            <p class="mt-2 text-sm font-semibold text-slate-900">{{ memberSinceLabel }}</p>
+          <article class="rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5">
+            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Роль</p>
+            <p class="mt-2 text-sm font-semibold text-slate-900">{{ roleLabel }}</p>
           </article>
         </div>
       </div>
@@ -265,7 +226,11 @@ onMounted(loadProfile)
 
         <div class="sm:col-span-2 flex flex-col gap-4 pt-2 lg:flex-row lg:items-center lg:justify-between">
           <p class="text-sm" :class="hasChanges ? 'text-amber-700' : 'text-slate-500'">
-            {{ hasChanges ? 'Есть несохраненные изменения.' : 'Все изменения уже сохранены.' }}
+            {{
+              hasChanges
+                ? 'Есть несохраненные изменения.'
+                : 'Форма синхронизирована с текущими данными профиля.'
+            }}
           </p>
 
           <button

@@ -5,12 +5,20 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\AuthUserEventPublisher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly AuthUserEventPublisher $authUserEventPublisher,
+    ) {
+    }
+
     public function register(Request $request)
     {
         $validated = $request->validate([
@@ -25,7 +33,7 @@ class AuthController extends Controller
 
         if (!$userRole) {
             return response()->json([
-                'message' => 'Роль user не найдена'
+                'message' => 'Роль user не найдена',
             ], 500);
         }
 
@@ -40,11 +48,14 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
+        $user->load('role');
+
+        $this->publishUserEventSafely('created', $user);
 
         return response()->json([
             'message' => 'Пользователь успешно зарегистрирован',
             'token' => $token,
-            'user' => $user->load('role'),
+            'user' => $user,
         ], 201);
     }
 
@@ -65,7 +76,7 @@ class AuthController extends Controller
 
         if ((int) $user->status !== 1) {
             return response()->json([
-                'message' => 'Аккаунт заблокирован'
+                'message' => 'Аккаунт заблокирован',
             ], 403);
         }
 
@@ -96,10 +107,13 @@ class AuthController extends Controller
         ]);
 
         $user->update($validated);
+        $updatedUser = $user->fresh()->load('role');
+
+        $this->publishUserEventSafely('updated', $updatedUser);
 
         return response()->json([
-            'message' => 'Профиль успешно обновлён',
-            'user' => $user->fresh()->load('role'),
+            'message' => 'Профиль успешно обновлен',
+            'user' => $updatedUser,
         ]);
     }
 
@@ -110,5 +124,22 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Вы успешно вышли из системы',
         ]);
+    }
+
+    private function publishUserEventSafely(string $type, User $user): void
+    {
+        try {
+            match ($type) {
+                'created' => $this->authUserEventPublisher->publishCreated($user),
+                'updated' => $this->authUserEventPublisher->publishUpdated($user),
+                default => null,
+            };
+        } catch (Throwable $exception) {
+            Log::warning('Failed to publish auth user event to RabbitMQ.', [
+                'type' => $type,
+                'user_id' => $user->id,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 }

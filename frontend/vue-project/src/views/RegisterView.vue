@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import type { RegisterPayload } from '@/types/auth'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -17,13 +18,13 @@ const form = reactive<RegisterPayload>({
 })
 
 const successMessage = ref('')
-const passwordMismatch = computed(
-  () =>
-    form.password_confirmation.trim() !== '' &&
-    form.password !== form.password_confirmation
-)
-const canSubmit = computed(
-  () =>
+
+const passwordMismatch = computed(() => {
+  return form.password_confirmation.trim() !== '' && form.password !== form.password_confirmation
+})
+
+const canSubmit = computed(() => {
+  return (
     form.full_name.trim() !== '' &&
     form.email.trim() !== '' &&
     form.phone.trim() !== '' &&
@@ -31,7 +32,13 @@ const canSubmit = computed(
     form.password.trim() !== '' &&
     form.password_confirmation.trim() !== '' &&
     !passwordMismatch.value
-)
+  )
+})
+
+const resolveTargetRoute = () => {
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  return redirect || '/profile'
+}
 
 const register = async () => {
   successMessage.value = ''
@@ -39,7 +46,7 @@ const register = async () => {
   try {
     const response = await authStore.register({ ...form })
     successMessage.value = response.message
-    router.push('/profile')
+    router.push(resolveTargetRoute())
   } catch (error) {
     console.error(error)
   }
@@ -48,45 +55,43 @@ const register = async () => {
 
 <template>
   <section class="app-panel overflow-hidden">
-    <div class="grid lg:grid-cols-[0.95fr_1.05fr]">
-      <div class="border-b border-white/60 bg-slate-900 px-8 py-10 text-white lg:border-b-0 lg:border-r lg:border-white/10">
-        <span
-          class="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/75"
-        >
+    <div class="grid lg:grid-cols-[0.96fr_1.04fr]">
+      <div class="border-b border-white/10 bg-slate-950 px-8 py-10 text-white lg:border-b-0 lg:border-r lg:px-10">
+        <span class="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/75">
           Новый аккаунт
         </span>
-        <h2 class="mt-5 text-4xl font-semibold leading-tight text-white">
-          Регистрация с аккуратной структурой и понятными полями
+        <h2 class="mt-5 text-4xl font-semibold leading-tight">
+          Регистрация пользователя с нормальной структурой данных
         </h2>
-        <p class="mt-4 max-w-lg text-sm leading-6 text-white/70 sm:text-base">
-          Создай учетную запись пользователя, чтобы получить доступ к системе и
-          сразу перейти к редактированию профиля.
+        <p class="mt-4 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
+          Форма сразу собирает все поля, которые нужны `auth-service`: ФИО, телефон, дату рождения
+          и пароль с подтверждением.
         </p>
 
         <div class="mt-8 space-y-4">
-          <article class="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <p class="text-sm font-semibold text-white">Что уже продумано</p>
+          <article class="rounded-[1.75rem] border border-white/10 bg-white/5 p-6">
+            <p class="text-sm font-semibold text-white">Подходит под диплом</p>
             <p class="mt-2 text-sm leading-6 text-white/70">
-              Поля собраны в логичные блоки, форма хорошо читается и на ноутбуке, и
-              на телефоне.
+              Тут уже не просто шаблонный логин, а полноценный пользовательский контур с ролями и
+              защищенным профилем.
             </p>
           </article>
 
-          <article class="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <p class="text-sm font-semibold text-white">Небольшая защита от ошибок</p>
+          <article class="rounded-[1.75rem] border border-white/10 bg-white/5 p-6">
+            <p class="text-sm font-semibold text-white">Меньше ошибок</p>
             <p class="mt-2 text-sm leading-6 text-white/70">
-              Кнопка неактивна, пока форма не заполнена полностью и пароли не
+              Кнопка регистрации активируется только когда форма полностью заполнена и пароли
               совпадают.
             </p>
           </article>
         </div>
       </div>
 
-      <div class="p-8 sm:p-10">
+      <div class="px-8 py-10 lg:px-10">
         <div class="mb-8">
-          <h3 class="text-2xl font-semibold text-slate-900">Создать аккаунт</h3>
+          <h3 class="text-2xl font-semibold text-slate-950">Создать аккаунт</h3>
           <p class="mt-2 text-sm leading-6 text-slate-500">
-            Заполни основные данные пользователя. Все поля ниже обязательные.
+            После регистрации пользователь автоматически авторизуется и попадет в личный кабинет.
           </p>
         </div>
 
@@ -100,9 +105,9 @@ const register = async () => {
 
         <form class="grid gap-5 sm:grid-cols-2" @submit.prevent="register">
           <div class="sm:col-span-2">
-            <label class="field-label" for="register-name">ФИО</label>
+            <label class="field-label" for="register-full-name">ФИО</label>
             <input
-              id="register-name"
+              id="register-full-name"
               v-model="form.full_name"
               type="text"
               autocomplete="name"
@@ -158,9 +163,7 @@ const register = async () => {
           </div>
 
           <div>
-            <label class="field-label" for="register-password-confirmation">
-              Подтверждение пароля
-            </label>
+            <label class="field-label" for="register-password-confirmation">Подтверждение пароля</label>
             <input
               id="register-password-confirmation"
               v-model="form.password_confirmation"
@@ -176,10 +179,7 @@ const register = async () => {
           </p>
 
           <div class="sm:col-span-2 flex flex-col gap-4 pt-2 sm:flex-row sm:items-center sm:justify-between">
-            <RouterLink
-              class="text-sm font-semibold text-emerald-700 hover:text-emerald-800"
-              to="/login"
-            >
+            <RouterLink class="text-sm font-semibold text-sky-700 hover:text-sky-800" to="/login">
               Уже есть аккаунт? Войти
             </RouterLink>
 
