@@ -13,7 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
+            'api.auth' => \App\Http\Middleware\AuthenticateApiUser::class,
             'organizer.auth' => \App\Http\Middleware\AuthenticateOrganizer::class,
+            'internal.api' => \App\Http\Middleware\EnsureInternalApiAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

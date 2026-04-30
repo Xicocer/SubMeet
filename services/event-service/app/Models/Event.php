@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Event extends Model
@@ -54,6 +55,16 @@ class Event extends Model
     public function organizer(): BelongsTo
     {
         return $this->belongsTo(AuthUser::class, 'organizer_id', 'auth_user_id');
+    }
+
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class);
+    }
+
+    public function favorites(): HasMany
+    {
+        return $this->hasMany(EventFavorite::class);
     }
 
     public function scopePublished(Builder $query): Builder

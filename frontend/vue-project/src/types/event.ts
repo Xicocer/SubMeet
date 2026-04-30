@@ -1,3 +1,5 @@
+import type { HallCapacities, HallLayoutMeta } from '@/types/hall'
+
 export interface Category {
   id: number
   name: string
@@ -10,9 +12,17 @@ export interface AgeRating {
   min_age: number
 }
 
+export interface EventTag {
+  id: number
+  name: string
+  slug: string
+}
+
 export interface EventOrganizer {
   id: number | null
   full_name: string | null
+  company_name: string | null
+  display_name: string | null
   email: string | null
 }
 
@@ -22,7 +32,9 @@ export interface EventSummaryBase {
   poster_url: string | null
   category: Category | null
   age_rating: AgeRating | null
+  tags: EventTag[]
   organizer: EventOrganizer | null
+  is_wanted: boolean
 }
 
 export interface PublicEvent extends EventSummaryBase {}
@@ -35,16 +47,35 @@ export interface EventDetails extends EventSummaryBase {
   updated_at: string | null
 }
 
+export interface EventSessionHallSummary {
+  id: number | null
+  name: string | null
+  address: string | null
+  description: string | null
+  organizer_id: number | null
+  status: string | null
+  capacities: HallCapacities | null
+  layout_meta: HallLayoutMeta | null
+}
+
 export interface EventSession {
   id: number
   event_id: number
   hall_id: number
+  hall?: EventSessionHallSummary | null
   start_time: string | null
   end_time: string | null
   base_price: number | string
   status: OrganizerSessionStatus
   created_at?: string | null
   updated_at?: string | null
+}
+
+export interface WantToGoEvent extends EventSummaryBase {
+  description: string | null
+  wanted_at: string | null
+  minimum_price: number | string | null
+  next_session: EventSession | null
 }
 
 export interface PaginatedResponse<T> {
@@ -84,6 +115,7 @@ export interface OrganizerEventPayload {
   poster_url: string | null
   category_id: number
   age_rating_id: number
+  tags: string[]
   status: Extract<OrganizerEventStatus, 'draft' | 'published'>
 }
 
@@ -108,4 +140,10 @@ export interface OrganizerSessionPayload {
 export interface OrganizerSessionMutationResponse {
   message: string
   session: EventSession
+}
+
+export interface WantToGoMutationResponse {
+  message: string
+  event_id: number
+  is_wanted: boolean
 }

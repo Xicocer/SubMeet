@@ -1,4 +1,5 @@
 import { eventApi } from './axios'
+import type { OrganizerEventDashboardResponse } from '@/types/analytics'
 import type {
   AgeRating,
   Category,
@@ -14,6 +15,8 @@ import type {
   OrganizerSessionPayload,
   PaginatedResponse,
   PublicEvent,
+  WantToGoEvent,
+  WantToGoMutationResponse,
 } from '@/types/event'
 
 export const getCategoriesRequest = async () => {
@@ -41,8 +44,28 @@ export const getEventSessionsRequest = async (id: number) => {
   return data
 }
 
+export const getWantToGoEventsRequest = async () => {
+  const { data } = await eventApi.get<WantToGoEvent[]>('/me/want-to-go')
+  return data
+}
+
+export const addWantToGoRequest = async (eventId: number) => {
+  const { data } = await eventApi.post<WantToGoMutationResponse>(`/events/${eventId}/want-to-go`)
+  return data
+}
+
+export const removeWantToGoRequest = async (eventId: number) => {
+  const { data } = await eventApi.delete<WantToGoMutationResponse>(`/events/${eventId}/want-to-go`)
+  return data
+}
+
 export const getOrganizerEventsRequest = async (params: OrganizerEventsFilters) => {
   const { data } = await eventApi.get<PaginatedResponse<OrganizerEvent>>('/organizer/events', { params })
+  return data
+}
+
+export const getOrganizerEventDashboardRequest = async () => {
+  const { data } = await eventApi.get<OrganizerEventDashboardResponse>('/organizer/dashboard')
   return data
 }
 

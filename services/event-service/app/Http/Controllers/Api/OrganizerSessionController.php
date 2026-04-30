@@ -5,29 +5,49 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventSession;
+use App\Services\BookingServiceClient;
+use App\Services\HallServiceClient;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 
 class OrganizerSessionController extends Controller
 {
+    public function __construct(
+        private readonly HallServiceClient $hallServiceClient,
+        private readonly BookingServiceClient $bookingServiceClient,
+    ) {
+    }
+
     public function index(Request $request, int $eventId): JsonResponse
     {
         $organizer = $request->attributes->get('auth_user');
         $event = $this->findOrganizerEventOrFail($eventId, $organizer['id']);
+        $token = $this->requireBearerToken($request);
 
         $sessions = EventSession::query()
             ->where('event_id', $event->id)
             ->orderBy('start_time')
-            ->get()
-            ->map(fn (EventSession $session) => $this->transformSession($session));
+            ->get();
 
-        return response()->json($sessions);
+        $hallMap = $this->loadOrganizerHallMap($token, $sessions->pluck('hall_id')->all());
+
+        return response()->json(
+            $sessions->map(
+                fn (EventSession $session) => $this->transformSession(
+                    $session,
+                    $hallMap[$session->hall_id] ?? null,
+                )
+            )
+        );
     }
 
     public function store(Request $request, int $eventId): JsonResponse
     {
         $organizer = $request->attributes->get('auth_user');
+        $token = $this->requireBearerToken($request);
 
         $validated = $request->validate([
             'hall_id' => ['required', 'integer', 'min:1'],
@@ -37,6 +57,7 @@ class OrganizerSessionController extends Controller
         ]);
 
         $event = $this->findOrganizerEventOrFail($eventId, $organizer['id']);
+        $hall = $this->resolveOrganizerHallOrFail($token, (int) $validated['hall_id']);
 
         $this->ensureNoHallOverlap(
             hallId: (int) $validated['hall_id'],
@@ -54,14 +75,15 @@ class OrganizerSessionController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Сеанс успешно создан.',
-            'session' => $this->transformSession($session),
+            'message' => 'Session created successfully.',
+            'session' => $this->transformSession($session, $this->transformHallSummary($hall)),
         ], 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
         $organizer = $request->attributes->get('auth_user');
+        $token = $this->requireBearerToken($request);
 
         $validated = $request->validate([
             'hall_id' => ['required', 'integer', 'min:1'],
@@ -71,6 +93,15 @@ class OrganizerSessionController extends Controller
         ]);
 
         $session = $this->findOrganizerSessionOrFail($id, $organizer['id']);
+        $impact = $this->loadSessionBookingImpact($token, $session->id);
+
+        if ($this->hasProtectedBookings($impact)) {
+            throw ValidationException::withMessages([
+                'session' => ['Session time, hall and price cannot be changed after reservations or paid tickets appear.'],
+            ]);
+        }
+
+        $hall = $this->resolveOrganizerHallOrFail($token, (int) $validated['hall_id']);
 
         $this->ensureNoHallOverlap(
             hallId: (int) $validated['hall_id'],
@@ -87,23 +118,33 @@ class OrganizerSessionController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Сеанс успешно обновлен.',
-            'session' => $this->transformSession($session->fresh()),
+            'message' => 'Session updated successfully.',
+            'session' => $this->transformSession($session->fresh(), $this->transformHallSummary($hall)),
         ]);
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
         $organizer = $request->attributes->get('auth_user');
+        $token = $this->requireBearerToken($request);
         $session = $this->findOrganizerSessionOrFail($id, $organizer['id']);
+        $impact = $this->loadSessionBookingImpact($token, $session->id);
+
+        if ($this->hasProtectedBookings($impact)) {
+            throw ValidationException::withMessages([
+                'session' => ['The session cannot be cancelled while it has active reservations or paid tickets.'],
+            ]);
+        }
+
+        $hall = $this->loadOrganizerHallMap($token, [$session->hall_id]);
 
         $session->update([
             'status' => EventSession::STATUS_CANCELLED,
         ]);
 
         return response()->json([
-            'message' => 'Сеанс отменен.',
-            'session' => $this->transformSession($session->fresh()),
+            'message' => 'Session cancelled.',
+            'session' => $this->transformSession($session->fresh(), $hall[$session->hall_id] ?? null),
         ]);
     }
 
@@ -141,17 +182,119 @@ class OrganizerSessionController extends Controller
 
         if ($query->exists()) {
             throw ValidationException::withMessages([
-                'hall_id' => ['В этом зале уже есть пересекающийся сеанс.'],
+                'hall_id' => ['There is already an overlapping session in this hall.'],
             ]);
         }
     }
 
-    private function transformSession(EventSession $session): array
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadSessionBookingImpact(string $token, int $sessionId): array
+    {
+        try {
+            return $this->bookingServiceClient->getOrganizerSessionBookingImpact($token, $sessionId) ?? [];
+        } catch (ConnectionException $exception) {
+            throw new ServiceUnavailableHttpException(null, 'Booking service is unavailable.', $exception);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $impact
+     */
+    private function hasProtectedBookings(array $impact): bool
+    {
+        return (int) ($impact['active_reservations_count'] ?? 0) > 0
+            || (int) ($impact['confirmed_bookings_count'] ?? 0) > 0;
+    }
+
+    private function requireBearerToken(Request $request): string
+    {
+        $token = $request->bearerToken();
+
+        if ($token === null || $token === '') {
+            abort(401, 'Missing bearer token.');
+        }
+
+        return $token;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveOrganizerHallOrFail(string $token, int $hallId): array
+    {
+        try {
+            $hall = $this->hallServiceClient->getOrganizerHall($token, $hallId);
+        } catch (ConnectionException $exception) {
+            throw new ServiceUnavailableHttpException(null, 'Hall service is unavailable.', $exception);
+        }
+
+        if ($hall === null) {
+            throw ValidationException::withMessages([
+                'hall_id' => ['Hall does not exist or does not belong to the current organizer.'],
+            ]);
+        }
+
+        return $hall;
+    }
+
+    /**
+     * @param  array<int, int>  $hallIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadOrganizerHallMap(string $token, array $hallIds): array
+    {
+        $hallMap = [];
+
+        try {
+            foreach (array_unique($hallIds) as $hallId) {
+                $hall = $this->hallServiceClient->getOrganizerHall($token, (int) $hallId);
+
+                if ($hall !== null) {
+                    $hallMap[(int) $hallId] = $this->transformHallSummary($hall);
+                }
+            }
+        } catch (ConnectionException) {
+            return [];
+        }
+
+        return $hallMap;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $hall
+     * @return array<string, mixed>|null
+     */
+    private function transformHallSummary(?array $hall): ?array
+    {
+        if ($hall === null) {
+            return null;
+        }
+
+        return [
+            'id' => $hall['id'] ?? null,
+            'name' => $hall['name'] ?? null,
+            'address' => $hall['address'] ?? null,
+            'description' => $hall['description'] ?? null,
+            'organizer_id' => $hall['organizer_id'] ?? null,
+            'status' => $hall['status'] ?? null,
+            'capacities' => $hall['capacities'] ?? null,
+            'layout_meta' => $hall['layout_meta'] ?? null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $hall
+     * @return array<string, mixed>
+     */
+    private function transformSession(EventSession $session, ?array $hall = null): array
     {
         return [
             'id' => $session->id,
             'event_id' => $session->event_id,
             'hall_id' => $session->hall_id,
+            'hall' => $hall,
             'start_time' => $session->start_time?->toISOString(),
             'end_time' => $session->end_time?->toISOString(),
             'base_price' => $session->base_price,

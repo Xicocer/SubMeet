@@ -7,6 +7,7 @@ use App\Models\Category;
 use App\Models\Event;
 use App\Models\EventSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -19,7 +20,9 @@ class OrganizerSessionControllerTest extends TestCase
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ]);
 
         $response = $this->withHeader('Authorization', 'Bearer organizer-token')
             ->postJson("/api/organizer/events/{$event->id}/sessions", [
@@ -33,6 +36,8 @@ class OrganizerSessionControllerTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('session.event_id', $event->id)
             ->assertJsonPath('session.hall_id', 101)
+            ->assertJsonPath('session.hall.name', 'Main Arena')
+            ->assertJsonPath('session.hall.address', 'Нижний Новгород, ул. Большая Покровская, 1')
             ->assertJsonPath('session.status', EventSession::STATUS_SCHEDULED);
 
         $this->assertDatabaseHas('event_sessions', [
@@ -44,11 +49,14 @@ class OrganizerSessionControllerTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_index_returns_sessions_for_current_organizer_event(): void
+    public function test_index_returns_sessions_for_current_organizer_event_with_hall_data(): void
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            101 => $this->hallPayload(101, 77, 'Main Arena'),
+            102 => $this->hallPayload(102, 77, 'VIP Hall'),
+        ]);
 
         EventSession::query()->create([
             'event_id' => $event->id,
@@ -73,6 +81,9 @@ class OrganizerSessionControllerTest extends TestCase
             ->assertOk()
             ->assertJsonCount(2)
             ->assertJsonPath('0.hall_id', 101)
+            ->assertJsonPath('0.hall.name', 'Main Arena')
+            ->assertJsonPath('0.hall.address', 'Нижний Новгород, ул. Большая Покровская, 1')
+            ->assertJsonPath('1.hall.name', 'VIP Hall')
             ->assertJsonPath('1.status', EventSession::STATUS_CANCELLED);
 
         Carbon::setTestNow();
@@ -82,7 +93,9 @@ class OrganizerSessionControllerTest extends TestCase
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(88);
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ]);
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->postJson("/api/organizer/events/{$event->id}/sessions", [
@@ -96,11 +109,32 @@ class OrganizerSessionControllerTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_store_rejects_foreign_or_missing_hall(): void
+    {
+        Carbon::setTestNow('2026-04-24 10:00:00');
+        $event = $this->createOrganizerEvent(77);
+        $this->fakeOrganizerDependencies(77);
+
+        $this->withHeader('Authorization', 'Bearer organizer-token')
+            ->postJson("/api/organizer/events/{$event->id}/sessions", [
+                'hall_id' => 999,
+                'start_time' => Carbon::now()->addDay()->toDateTimeString(),
+                'end_time' => Carbon::now()->addDay()->addHours(2)->toDateTimeString(),
+                'base_price' => 2500,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['hall_id']);
+
+        Carbon::setTestNow();
+    }
+
     public function test_store_rejects_intersecting_sessions_in_same_hall(): void
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ]);
 
         EventSession::query()->create([
             'event_id' => $event->id,
@@ -137,7 +171,9 @@ class OrganizerSessionControllerTest extends TestCase
             'status' => EventSession::STATUS_SCHEDULED,
         ]);
 
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            102 => $this->hallPayload(102, 77, 'Balcony Hall'),
+        ]);
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->putJson("/api/organizer/sessions/{$session->id}", [
@@ -147,7 +183,9 @@ class OrganizerSessionControllerTest extends TestCase
                 'base_price' => 3500,
             ])
             ->assertOk()
-            ->assertJsonPath('session.hall_id', 102);
+            ->assertJsonPath('session.hall_id', 102)
+            ->assertJsonPath('session.hall.name', 'Balcony Hall')
+            ->assertJsonPath('session.hall.address', 'Нижний Новгород, ул. Большая Покровская, 3');
 
         $this->assertDatabaseHas('event_sessions', [
             'id' => $session->id,
@@ -162,7 +200,9 @@ class OrganizerSessionControllerTest extends TestCase
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            200 => $this->hallPayload(200, 77, 'Main Arena'),
+        ]);
 
         EventSession::query()->create([
             'event_id' => $event->id,
@@ -207,12 +247,16 @@ class OrganizerSessionControllerTest extends TestCase
             'status' => EventSession::STATUS_SCHEDULED,
         ]);
 
-        $this->fakeOrganizerAuth(77);
+        $this->fakeOrganizerDependencies(77, [
+            101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ]);
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->deleteJson("/api/organizer/sessions/{$session->id}")
             ->assertOk()
-            ->assertJsonPath('session.status', EventSession::STATUS_CANCELLED);
+            ->assertJsonPath('session.status', EventSession::STATUS_CANCELLED)
+            ->assertJsonPath('session.hall.name', 'Main Arena')
+            ->assertJsonPath('session.hall.address', 'Нижний Новгород, ул. Большая Покровская, 1');
 
         $this->assertDatabaseHas('event_sessions', [
             'id' => $session->id,
@@ -220,26 +264,150 @@ class OrganizerSessionControllerTest extends TestCase
         ]);
     }
 
-    private function fakeOrganizerAuth(int $organizerId): void
+    public function test_update_rejects_session_changes_when_bookings_exist(): void
     {
-        Http::fake([
-            'http://127.0.0.1:8000/api/me' => Http::response([
-                'user' => [
-                    'id' => $organizerId,
-                    'full_name' => 'Event Organizer',
-                    'email' => 'organizer@example.com',
-                    'role' => [
-                        'role' => 'organizer',
-                    ],
-                ],
-            ], 200),
+        Carbon::setTestNow('2026-04-24 10:00:00');
+        $event = $this->createOrganizerEvent(77);
+        $session = EventSession::query()->create([
+            'event_id' => $event->id,
+            'hall_id' => 101,
+            'start_time' => Carbon::now()->addDay()->setTime(18, 0),
+            'end_time' => Carbon::now()->addDay()->setTime(20, 0),
+            'base_price' => 3000,
+            'status' => EventSession::STATUS_SCHEDULED,
         ]);
+
+        $this->fakeOrganizerDependencies(77, [
+            102 => $this->hallPayload(102, 77, 'Balcony Hall'),
+        ], [
+            $session->id => $this->guardPayload(eventSessionId: $session->id, confirmedBookingsCount: 1, confirmedTicketsCount: 2),
+        ]);
+
+        $this->withHeader('Authorization', 'Bearer organizer-token')
+            ->putJson("/api/organizer/sessions/{$session->id}", [
+                'hall_id' => 102,
+                'start_time' => Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
+                'end_time' => Carbon::now()->addDay()->setTime(23, 0)->toDateTimeString(),
+                'base_price' => 3500,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['session']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_destroy_rejects_session_cancellation_with_active_reservations(): void
+    {
+        Carbon::setTestNow('2026-04-24 10:00:00');
+        $event = $this->createOrganizerEvent(77);
+        $session = EventSession::query()->create([
+            'event_id' => $event->id,
+            'hall_id' => 101,
+            'start_time' => Carbon::now()->addDay()->setTime(18, 0),
+            'end_time' => Carbon::now()->addDay()->setTime(20, 0),
+            'base_price' => 3000,
+            'status' => EventSession::STATUS_SCHEDULED,
+        ]);
+
+        $this->fakeOrganizerDependencies(77, [
+            101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ], [
+            $session->id => $this->guardPayload(eventSessionId: $session->id, activeReservationsCount: 1, activeReservedTicketsCount: 3),
+        ]);
+
+        $this->withHeader('Authorization', 'Bearer organizer-token')
+            ->deleteJson("/api/organizer/sessions/{$session->id}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['session']);
+
+        Carbon::setTestNow();
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $halls
+     * @param  array<int, array<string, mixed>>  $sessionImpacts
+     */
+    private function fakeOrganizerDependencies(int $organizerId, array $halls = [], array $sessionImpacts = []): void
+    {
+        Http::preventStrayRequests();
+
+        Http::fake(function (HttpRequest $request) use ($organizerId, $halls, $sessionImpacts) {
+            if ($request->url() === 'http://127.0.0.1:8000/api/me') {
+                return Http::response([
+                    'user' => [
+                        'id' => $organizerId,
+                        'full_name' => 'Event Organizer',
+                        'email' => 'organizer@example.com',
+                        'role' => [
+                            'role' => 'organizer',
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if (preg_match('#^http://127\.0\.0\.1:8002/api/organizer/halls/(\d+)$#', $request->url(), $matches) === 1) {
+                $hallId = (int) $matches[1];
+
+                if (array_key_exists($hallId, $halls)) {
+                    return Http::response($halls[$hallId], 200);
+                }
+
+                return Http::response([
+                    'message' => 'Hall not found.',
+                ], 404);
+            }
+
+            if (preg_match('#^http://127\.0\.0\.1:8003/api/organizer/guards/sessions/(\d+)/booking-impact$#', $request->url(), $matches) === 1) {
+                $sessionId = (int) $matches[1];
+
+                return Http::response(
+                    $sessionImpacts[$sessionId] ?? $this->guardPayload(eventSessionId: $sessionId),
+                    200
+                );
+            }
+
+            return Http::response([
+                'message' => 'Unexpected request: ' . $request->url(),
+            ], 500);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function hallPayload(int $hallId, int $organizerId, string $name): array
+    {
+        $address = match ($hallId) {
+            101 => 'Нижний Новгород, ул. Большая Покровская, 1',
+            102 => 'Нижний Новгород, ул. Большая Покровская, 3',
+            default => 'Нижний Новгород, ул. Варварская, 5',
+        };
+
+        return [
+            'id' => $hallId,
+            'name' => $name,
+            'address' => $address,
+            'description' => 'Organizer hall used for sessions.',
+            'organizer_id' => $organizerId,
+            'status' => 'active',
+            'capacities' => [
+                'seat' => 120,
+                'vip' => 24,
+                'dancefloor' => 80,
+                'total' => 224,
+            ],
+            'layout_meta' => [
+                'levels_count' => 2,
+                'elements_count' => 8,
+                'has_dancefloor' => true,
+            ],
+        ];
     }
 
     private function createOrganizerEvent(int $organizerId): Event
     {
         $category = Category::query()->create([
-            'name' => 'Концерт',
+            'name' => 'РљРѕРЅС†РµСЂС‚',
             'slug' => 'concert',
         ]);
 
@@ -249,13 +417,36 @@ class OrganizerSessionControllerTest extends TestCase
         ]);
 
         return Event::query()->create([
-            'title' => 'Большой концерт',
-            'description' => 'Описание',
+            'title' => 'Р‘РѕР»СЊС€РѕР№ РєРѕРЅС†РµСЂС‚',
+            'description' => 'РћРїРёСЃР°РЅРёРµ',
             'poster_url' => null,
             'category_id' => $category->id,
             'age_rating_id' => $ageRating->id,
             'organizer_id' => $organizerId,
             'status' => Event::STATUS_DRAFT,
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function guardPayload(
+        ?int $eventId = null,
+        ?int $eventSessionId = null,
+        int $confirmedBookingsCount = 0,
+        int $confirmedTicketsCount = 0,
+        int $activeReservationsCount = 0,
+        int $activeReservedTicketsCount = 0,
+    ): array {
+        return [
+            'event_id' => $eventId,
+            'event_session_id' => $eventSessionId,
+            'has_confirmed_bookings' => $confirmedBookingsCount > 0,
+            'confirmed_bookings_count' => $confirmedBookingsCount,
+            'confirmed_tickets_count' => $confirmedTicketsCount,
+            'active_reservations_count' => $activeReservationsCount,
+            'active_reserved_tickets_count' => $activeReservedTicketsCount,
+            'latest_confirmed_at' => null,
+        ];
     }
 }

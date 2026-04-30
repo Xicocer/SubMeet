@@ -1,0 +1,270 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  cancelBookingRequest,
+  downloadTicketRequest,
+  getMyBookingRequest,
+  refreshBookingPaymentRequest,
+} from '@/api/booking'
+import type { UserBooking } from '@/types/booking'
+import { formatDateTime, formatPrice } from '@/utils/format'
+
+const route = useRoute()
+const router = useRouter()
+
+const booking = ref<UserBooking | null>(null)
+const loading = ref(false)
+const actionLoading = ref(false)
+const ticketLoading = ref(false)
+const error = ref('')
+const successMessage = ref('')
+
+const bookingId = computed(() => Number(route.params.id))
+const isConfirmed = computed(() => booking.value?.status === 'confirmed')
+const isCancelledLike = computed(() => booking.value?.status === 'cancelled' || booking.value?.status === 'expired')
+
+const lineItemsLabel = computed(() => {
+  if (!booking.value || booking.value.items.length === 0) {
+    return 'Состав билета уточняется'
+  }
+
+  return booking.value.items
+    .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
+    .join(', ')
+})
+
+const loadBooking = async () => {
+  if (Number.isNaN(bookingId.value) || bookingId.value < 1) {
+    error.value = 'Некорректный идентификатор оплаты.'
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+
+  try {
+    booking.value = await getMyBookingRequest(bookingId.value)
+  } catch (requestError) {
+    console.error(requestError)
+    error.value = 'Не удалось загрузить страницу оплаты.'
+  } finally {
+    loading.value = false
+  }
+}
+
+const completePayment = async () => {
+  if (!booking.value) {
+    return
+  }
+
+  actionLoading.value = true
+  error.value = ''
+
+  try {
+    booking.value = (await refreshBookingPaymentRequest(booking.value.id)).booking
+    successMessage.value = 'Оплата подтверждена. Билет уже выпущен и готов к скачиванию.'
+  } catch (requestError) {
+    console.error(requestError)
+    error.value = 'Не удалось подтвердить оплату.'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+const cancelPayment = async () => {
+  if (!booking.value) {
+    return
+  }
+
+  actionLoading.value = true
+  error.value = ''
+
+  try {
+    booking.value = (await cancelBookingRequest(booking.value.id)).booking
+    await router.push('/profile')
+  } catch (requestError) {
+    console.error(requestError)
+    error.value = 'Не удалось отменить оплату.'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+const downloadTicket = async () => {
+  if (!booking.value) {
+    return
+  }
+
+  ticketLoading.value = true
+
+  try {
+    const { blob, contentDisposition } = await downloadTicketRequest(booking.value.id)
+    const objectUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const fileNameMatch = contentDisposition?.match(/filename=\"?([^\";]+)\"?/)
+
+    link.href = objectUrl
+    link.download = fileNameMatch?.[1] || `submeet-ticket-${booking.value.id}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(objectUrl)
+  } catch (requestError) {
+    console.error(requestError)
+    error.value = 'Не удалось скачать билет.'
+  } finally {
+    ticketLoading.value = false
+  }
+}
+
+onMounted(loadBooking)
+</script>
+
+<template>
+  <section v-if="loading" class="app-panel mx-auto max-w-5xl p-8 sm:p-10">
+    <div class="h-8 w-56 animate-pulse rounded-full bg-slate-200"></div>
+    <div class="mt-6 h-40 animate-pulse rounded-[2rem] bg-slate-100"></div>
+  </section>
+
+  <section v-else class="mx-auto max-w-5xl space-y-6">
+    <div v-if="error" class="message-error">
+      {{ error }}
+    </div>
+
+    <div v-if="successMessage" class="message-success">
+      {{ successMessage }}
+    </div>
+
+    <div v-if="booking" class="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+      <article class="app-panel overflow-hidden">
+        <div class="bg-gradient-to-br from-slate-950 via-blue-900 to-sky-700 px-8 py-8 text-white sm:px-10">
+          <p class="text-xs font-semibold uppercase tracking-[0.26em] text-white/70">
+            Secure Demo Checkout
+          </p>
+          <h1 class="mt-4 text-4xl font-semibold leading-tight">
+            {{ booking.session?.event_title || 'Оплата билета' }}
+          </h1>
+          <p class="mt-3 text-sm leading-6 text-white/72 sm:text-base">
+            Демонстрационный платежный шаг для защиты диплома: поток оплаты отдельный, билет генерируется после подтверждения.
+          </p>
+        </div>
+
+        <div class="space-y-6 px-8 py-8 sm:px-10">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="soft-card">
+              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Заказ</p>
+              <p class="mt-3 text-xl font-semibold text-slate-950">#{{ booking.id }}</p>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ booking.flow_type === 'purchase' ? 'Покупка билета' : 'Оплата резерва' }}
+              </p>
+            </div>
+
+            <div class="soft-card">
+              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Статус</p>
+              <p class="mt-3 text-xl font-semibold text-slate-950">
+                {{
+                  isConfirmed
+                    ? 'Оплачено'
+                    : isCancelledLike
+                      ? 'Недоступно'
+                      : 'Ожидает подтверждения'
+                }}
+              </p>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ booking.payment?.provider === 'mock' ? 'Demo gateway' : booking.payment?.provider || 'Провайдер оплаты' }}
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-[1.7rem] border border-slate-200 bg-slate-50/80 p-6">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сеанс</p>
+                <p class="mt-2 text-sm font-semibold text-slate-950">
+                  {{ formatDateTime(booking.session?.start_time) }}
+                </p>
+                <p class="mt-2 text-sm text-slate-500">
+                  {{ booking.session?.hall_name || 'Площадка уточняется' }}
+                </p>
+                <p v-if="booking.session?.hall_address" class="mt-2 text-sm text-slate-500">
+                  {{ booking.session.hall_address }}
+                </p>
+              </div>
+
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Состав</p>
+                <p class="mt-2 text-sm leading-6 text-slate-700">
+                  {{ lineItemsLabel }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-[1.7rem] border border-dashed border-slate-200 bg-white px-6 py-5">
+            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Как это показать комиссии</p>
+            <p class="mt-3 text-sm leading-6 text-slate-600">
+              Здесь видно, что поток оплаты вынесен в отдельный checkout. После нажатия на кнопку подтверждения сервис завершает оплату, выпускает PDF-билет и возвращает его в личный кабинет пользователя.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <aside class="app-panel p-8 sm:p-10">
+        <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Итого к оплате</p>
+        <p class="mt-4 text-5xl font-semibold text-slate-950">
+          {{ formatPrice(booking.total_amount) }}
+        </p>
+        <p class="mt-3 text-sm leading-6 text-slate-500">
+          {{ booking.payment?.status === 'paid' ? 'Платеж уже подтвержден.' : 'После подтверждения оплаты билет сразу станет доступен в PDF.' }}
+        </p>
+
+        <div class="mt-8 space-y-3">
+          <button
+            v-if="!isConfirmed && !isCancelledLike"
+            type="button"
+            class="primary-button w-full"
+            :disabled="actionLoading"
+            @click="completePayment"
+          >
+            {{ actionLoading ? 'Подтверждаем оплату...' : 'Оплатить' }}
+          </button>
+
+          <button
+            v-if="!isConfirmed && !isCancelledLike"
+            type="button"
+            class="secondary-button w-full"
+            :disabled="actionLoading"
+            @click="cancelPayment"
+          >
+            Отменить
+          </button>
+
+          <button
+            v-if="isConfirmed"
+            type="button"
+            class="primary-button w-full"
+            :disabled="ticketLoading"
+            @click="downloadTicket"
+          >
+            {{ ticketLoading ? 'Готовим PDF...' : 'Скачать билет PDF' }}
+          </button>
+
+          <RouterLink to="/profile" class="secondary-button w-full text-center">
+            Перейти в кабинет
+          </RouterLink>
+        </div>
+
+        <div class="mt-8 rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-5">
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Провайдер</p>
+          <p class="mt-2 text-sm font-semibold text-slate-950">
+            {{ booking.payment?.provider === 'mock' ? 'Submeet Demo Gateway' : booking.payment?.provider || 'Оплата' }}
+          </p>
+          <p class="mt-3 text-sm text-slate-500">
+            В этом режиме реальные деньги не списываются, но вся серверная логика оплаты, подтверждения и выпуска билета остается настоящей.
+          </p>
+        </div>
+      </aside>
+    </div>
+  </section>
+</template>

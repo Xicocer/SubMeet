@@ -5,9 +5,10 @@ import {
   logoutRequest,
   meRequest,
   registerRequest,
+  registerOrganizerRequest,
   updateProfileRequest,
 } from '@/api/auth'
-import type { LoginPayload, RegisterPayload, UpdateProfilePayload } from '@/types/auth'
+import type { LoginPayload, OrganizerRegisterPayload, RegisterPayload, UpdateProfilePayload } from '@/types/auth'
 import type { User } from '@/types/user'
 
 const extractErrorMessage = (error: any, fallback: string) => {
@@ -60,6 +61,23 @@ export const useAuthStore = defineStore('auth', () => {
       return data
     } catch (e: any) {
       error.value = extractErrorMessage(e, 'Не удалось зарегистрировать аккаунт.')
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const registerOrganizer = async (payload: OrganizerRegisterPayload) => {
+    loading.value = true
+    clearError()
+
+    try {
+      const data = await registerOrganizerRequest(payload)
+      setToken(data.token)
+      user.value = data.user
+      return data
+    } catch (e: any) {
+      error.value = extractErrorMessage(e, 'Не удалось зарегистрировать организатора.')
       throw e
     } finally {
       loading.value = false
@@ -139,6 +157,7 @@ export const useAuthStore = defineStore('auth', () => {
     isOrganizer,
     roleName,
     register,
+    registerOrganizer,
     login,
     fetchMe,
     updateProfile,

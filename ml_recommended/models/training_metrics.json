@@ -1,0 +1,17 @@
+{
+  "best_params": {
+    "factors_count": 8,
+    "learning_rate": 0.005,
+    "regularization": 0.05,
+    "epochs": 80,
+    "content_weight": 0.18,
+    "popularity_weight": 0.15
+  },
+  "best_metrics": {
+    "mae": 1.4029894887608605,
+    "rmse": 1.6624438990815102,
+    "precision@10": 0.027586206896551727,
+    "recall@10": 0.08304597701149424,
+    "ndcg@10": 0.051563606983372375
+  }
+}

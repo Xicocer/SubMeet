@@ -31,3 +31,15 @@ export const authApi = createApiClient(
 export const eventApi = createApiClient(
   import.meta.env.VITE_EVENT_API_URL ?? 'http://127.0.0.1:8001/api'
 )
+
+export const hallApi = createApiClient(
+  import.meta.env.VITE_HALLS_API_URL ?? 'http://127.0.0.1:8002/api'
+)
+
+export const bookingApi = createApiClient(
+  import.meta.env.VITE_BOOKING_API_URL ?? 'http://127.0.0.1:8003/api'
+)
+
+export const recommendationApi = createApiClient(
+  import.meta.env.VITE_RECOMMENDATION_API_URL ?? 'http://127.0.0.1:8004/api'
+)

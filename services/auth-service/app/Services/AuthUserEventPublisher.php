@@ -29,6 +29,10 @@ class AuthUserEventPublisher
 
     private function publish(string $routingKey, User $user): void
     {
+        if (app()->runningUnitTests()) {
+            return;
+        }
+
         $connection = $this->connectionFactory->create();
         $channel = $connection->channel();
 
@@ -41,7 +45,7 @@ class AuthUserEventPublisher
                 auto_delete: false,
             );
 
-            $user->loadMissing('role');
+            $user->loadMissing(['role', 'organizerProfile']);
 
             $payload = [
                 'event_type' => $routingKey,
@@ -56,6 +60,9 @@ class AuthUserEventPublisher
                     'role' => [
                         'id' => $user->role?->id,
                         'role' => $user->role?->role,
+                    ],
+                    'organizer_profile' => [
+                        'company_name' => $user->organizerProfile?->company_name,
                     ],
                 ],
             ];

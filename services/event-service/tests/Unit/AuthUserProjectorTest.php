@@ -20,6 +20,9 @@ class AuthUserProjectorTest extends TestCase
             'payload' => [
                 'id' => 15,
                 'full_name' => 'Иван Иванов',
+                'organizer_profile' => [
+                    'company_name' => 'Milo Concert Hall',
+                ],
                 'email' => 'ivan@example.com',
                 'phone' => '+79990000000',
                 'birth_date' => '2000-01-01',
@@ -34,6 +37,7 @@ class AuthUserProjectorTest extends TestCase
         $this->assertDatabaseHas('auth_users', [
             'auth_user_id' => 15,
             'email' => 'ivan@example.com',
+            'company_name' => 'Milo Concert Hall',
             'role' => 'organizer',
         ]);
     }
@@ -45,6 +49,7 @@ class AuthUserProjectorTest extends TestCase
         AuthUser::query()->create([
             'auth_user_id' => 15,
             'full_name' => 'Иван Иванов',
+            'company_name' => 'Old Company',
             'email' => 'ivan@example.com',
             'phone' => '+79990000000',
             'birth_date' => '2000-01-01',
@@ -59,6 +64,9 @@ class AuthUserProjectorTest extends TestCase
             'payload' => [
                 'id' => 15,
                 'full_name' => 'Иван Организатор',
+                'organizer_profile' => [
+                    'company_name' => 'ДКХ',
+                ],
                 'email' => 'ivan@example.com',
                 'phone' => '+79991111111',
                 'birth_date' => '2000-01-01',
@@ -73,6 +81,7 @@ class AuthUserProjectorTest extends TestCase
         $this->assertDatabaseHas('auth_users', [
             'auth_user_id' => 15,
             'full_name' => 'Иван Организатор',
+            'company_name' => 'ДКХ',
             'phone' => '+79991111111',
             'role' => 'organizer',
             'role_id' => 2,

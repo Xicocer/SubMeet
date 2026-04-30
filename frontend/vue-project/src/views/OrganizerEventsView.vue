@@ -12,6 +12,7 @@ import {
   updateOrganizerEventRequest,
   updateOrganizerSessionRequest,
 } from '@/api/events'
+import { getOrganizerHallsRequest } from '@/api/halls'
 import { useAuthStore } from '@/stores/auth'
 import type {
   AgeRating,
@@ -22,17 +23,20 @@ import type {
   OrganizerEventStatus,
   OrganizerSessionPayload,
 } from '@/types/event'
+import type { HallSummary } from '@/types/hall'
 import { formatDate, formatDateTime, formatDateTimeForInput, formatPrice } from '@/utils/format'
 
 const authStore = useAuthStore()
 
 const categories = ref<Category[]>([])
 const ageRatings = ref<AgeRating[]>([])
+const halls = ref<HallSummary[]>([])
 const events = ref<OrganizerEvent[]>([])
 const sessions = ref<EventSession[]>([])
 
 const loading = ref(false)
 const lookupsLoading = ref(false)
+const hallsLoading = ref(false)
 const sessionsLoading = ref(false)
 const eventSaving = ref(false)
 const sessionSaving = ref(false)
@@ -56,6 +60,7 @@ const createEventDraft = () => ({
   poster_url: '',
   category_id: '',
   age_rating_id: '',
+  tags: '',
   status: 'draft' as Extract<OrganizerEventStatus, 'draft' | 'published'>,
 })
 
@@ -74,39 +79,79 @@ const activeEvent = computed(() => {
   return events.value.find((event) => event.id === selectedEventId.value) ?? null
 })
 
+const availableHalls = computed(() => halls.value.filter((hall) => hall.status !== 'archived'))
+const activeHall = computed(() => {
+  return availableHalls.value.find((hall) => hall.id === Number(sessionForm.hall_id)) ?? null
+})
+
+const parseEventTags = (value: string) => {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,\n]/)
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length >= 2),
+    ),
+  ).slice(0, 12)
+}
+
+const normalizeDecimalInput = (value: string | number) => {
+  return String(value ?? '')
+    .trim()
+    .replace(',', '.')
+}
+
+const normalizedSessionPrice = computed(() => normalizeDecimalInput(sessionForm.base_price))
+const hasValidSessionPrice = computed(() => {
+  if (normalizedSessionPrice.value === '') {
+    return false
+  }
+
+  const parsedPrice = Number(normalizedSessionPrice.value)
+  return Number.isFinite(parsedPrice) && parsedPrice >= 0
+})
+
+const hasValidSessionTimeRange = computed(() => {
+  if (sessionForm.start_time.trim() === '' || sessionForm.end_time.trim() === '') {
+    return false
+  }
+
+  return new Date(sessionForm.start_time).getTime() < new Date(sessionForm.end_time).getTime()
+})
+
 const draftCount = computed(() => events.value.filter((event) => event.status === 'draft').length)
 const publishedCount = computed(() => events.value.filter((event) => event.status === 'published').length)
 
 const canSubmitEvent = computed(() => {
-  return (
-    eventForm.title.trim() !== '' &&
-    eventForm.category_id !== '' &&
-    eventForm.age_rating_id !== ''
-  )
+  return eventForm.title.trim() !== '' && eventForm.category_id !== '' && eventForm.age_rating_id !== ''
 })
 
 const canSubmitSession = computed(() => {
   return (
     activeEvent.value !== null &&
-    sessionForm.hall_id.trim() !== '' &&
+    availableHalls.value.length > 0 &&
+    String(sessionForm.hall_id).trim() !== '' &&
     sessionForm.start_time.trim() !== '' &&
     sessionForm.end_time.trim() !== '' &&
-    sessionForm.base_price.trim() !== ''
+    hasValidSessionPrice.value &&
+    hasValidSessionTimeRange.value
   )
+})
+
+const organizerDisplayName = computed(() => {
+  return authStore.user?.organizer_profile?.company_name || authStore.user?.full_name || 'Организатор'
 })
 
 const eventStatusLabel = (status: OrganizerEventStatus) => {
   switch (status) {
     case 'published':
       return 'Опубликовано'
-    case 'draft':
-      return 'Черновик'
     case 'cancelled':
       return 'Отменено'
     case 'archived':
       return 'Архив'
     default:
-      return status
+      return 'Черновик'
   }
 }
 
@@ -114,14 +159,12 @@ const eventStatusClasses = (status: OrganizerEventStatus) => {
   switch (status) {
     case 'published':
       return 'border-emerald-200 bg-emerald-50 text-emerald-700'
-    case 'draft':
-      return 'border-amber-200 bg-amber-50 text-amber-700'
     case 'cancelled':
       return 'border-rose-200 bg-rose-50 text-rose-700'
     case 'archived':
       return 'border-slate-200 bg-slate-100 text-slate-700'
     default:
-      return 'border-slate-200 bg-slate-100 text-slate-700'
+      return 'border-amber-200 bg-amber-50 text-amber-700'
   }
 }
 
@@ -136,6 +179,20 @@ const sessionStatusClasses = (status: EventSession['status']) => {
     default:
       return 'border-slate-200 bg-slate-100 text-slate-700'
   }
+}
+
+const extractErrorMessage = (requestError: any, fallback: string) => {
+  const validationErrors = requestError?.response?.data?.errors
+
+  if (validationErrors && typeof validationErrors === 'object') {
+    const firstField = Object.values(validationErrors)[0]
+
+    if (Array.isArray(firstField) && firstField.length > 0) {
+      return String(firstField[0])
+    }
+  }
+
+  return requestError?.response?.data?.message || fallback
 }
 
 const resetSessionForm = () => {
@@ -158,6 +215,7 @@ const fillEventForm = (event: OrganizerEvent) => {
   eventForm.poster_url = event.poster_url || ''
   eventForm.category_id = event.category?.id ? String(event.category.id) : ''
   eventForm.age_rating_id = event.age_rating?.id ? String(event.age_rating.id) : ''
+  eventForm.tags = event.tags.map((tag) => tag.name).join(', ')
   eventForm.status = event.status === 'published' ? 'published' : 'draft'
 }
 
@@ -200,6 +258,24 @@ const loadLookups = async () => {
     error.value = 'Не удалось загрузить категории и возрастные рейтинги.'
   } finally {
     lookupsLoading.value = false
+  }
+}
+
+const loadHalls = async () => {
+  hallsLoading.value = true
+
+  try {
+    const response = await getOrganizerHallsRequest({
+      per_page: 50,
+    })
+
+    halls.value = response.data
+  } catch (requestError) {
+    console.error(requestError)
+    error.value = 'Не удалось загрузить список залов.'
+    halls.value = []
+  } finally {
+    hallsLoading.value = false
   }
 }
 
@@ -263,6 +339,7 @@ const submitEvent = async () => {
       poster_url: eventForm.poster_url.trim() || null,
       category_id: Number(eventForm.category_id),
       age_rating_id: Number(eventForm.age_rating_id),
+      tags: parseEventTags(eventForm.tags),
       status: eventForm.status,
     }
 
@@ -273,16 +350,18 @@ const submitEvent = async () => {
 
     success.value = response.message
     await loadEvents(1, response.event.id)
-  } catch (requestError: any) {
+  } catch (requestError) {
     console.error(requestError)
-    error.value = requestError?.response?.data?.message || 'Не удалось сохранить мероприятие.'
+    error.value = extractErrorMessage(requestError, 'Не удалось сохранить мероприятие.')
   } finally {
     eventSaving.value = false
   }
 }
 
 const changeEventStatus = async (status: Extract<OrganizerEventStatus, 'cancelled' | 'archived'>) => {
-  if (!activeEvent.value) return
+  if (!activeEvent.value) {
+    return
+  }
 
   const confirmed = window.confirm(
     status === 'cancelled'
@@ -290,7 +369,9 @@ const changeEventStatus = async (status: Extract<OrganizerEventStatus, 'cancelle
       : 'Отправить мероприятие в архив?',
   )
 
-  if (!confirmed) return
+  if (!confirmed) {
+    return
+  }
 
   error.value = ''
   success.value = ''
@@ -300,9 +381,9 @@ const changeEventStatus = async (status: Extract<OrganizerEventStatus, 'cancelle
     const response = await changeOrganizerEventStatusRequest(activeEvent.value.id, { status })
     success.value = response.message
     await loadEvents(1, response.event.id)
-  } catch (requestError: any) {
+  } catch (requestError) {
     console.error(requestError)
-    error.value = requestError?.response?.data?.message || 'Не удалось изменить статус мероприятия.'
+    error.value = extractErrorMessage(requestError, 'Не удалось изменить статус мероприятия.')
   } finally {
     eventSaving.value = false
   }
@@ -320,7 +401,9 @@ const editSession = (session: EventSession) => {
 
 const submitSession = async () => {
   if (!activeEvent.value || !canSubmitSession.value) {
-    error.value = 'Сначала выбери мероприятие и заполни все поля сеанса.'
+    error.value = availableHalls.value.length === 0
+      ? 'Сначала создай хотя бы один зал в конструкторе, а потом возвращайся к расписанию.'
+      : 'Сначала выбери мероприятие и заполни все поля сеанса.'
     return
   }
 
@@ -333,7 +416,7 @@ const submitSession = async () => {
       hall_id: Number(sessionForm.hall_id),
       start_time: sessionForm.start_time,
       end_time: sessionForm.end_time,
-      base_price: Number(sessionForm.base_price),
+      base_price: Number(normalizedSessionPrice.value),
     }
 
     const response = sessionForm.id
@@ -343,20 +426,24 @@ const submitSession = async () => {
     success.value = response.message
     resetSessionForm()
     await loadSessions(activeEvent.value.id)
-  } catch (requestError: any) {
+  } catch (requestError) {
     console.error(requestError)
-    error.value = requestError?.response?.data?.message || 'Не удалось сохранить сеанс.'
+    error.value = extractErrorMessage(requestError, 'Не удалось сохранить сеанс.')
   } finally {
     sessionSaving.value = false
   }
 }
 
 const cancelSession = async (session: EventSession) => {
-  if (!activeEvent.value) return
+  if (!activeEvent.value) {
+    return
+  }
 
   const confirmed = window.confirm('Отменить выбранный сеанс?')
 
-  if (!confirmed) return
+  if (!confirmed) {
+    return
+  }
 
   error.value = ''
   success.value = ''
@@ -367,16 +454,19 @@ const cancelSession = async (session: EventSession) => {
     success.value = response.message
     resetSessionForm()
     await loadSessions(activeEvent.value.id)
-  } catch (requestError: any) {
+  } catch (requestError) {
     console.error(requestError)
-    error.value = requestError?.response?.data?.message || 'Не удалось отменить сеанс.'
+    error.value = extractErrorMessage(requestError, 'Не удалось отменить сеанс.')
   } finally {
     sessionSaving.value = false
   }
 }
 
 const changePage = async (page: number) => {
-  if (page < 1 || page > pagination.last_page) return
+  if (page < 1 || page > pagination.last_page) {
+    return
+  }
+
   await loadEvents(page, selectedEventId.value)
 }
 
@@ -385,7 +475,7 @@ onMounted(async () => {
     await authStore.fetchMe()
   }
 
-  await Promise.all([loadLookups(), loadEvents()])
+  await Promise.all([loadLookups(), loadHalls(), loadEvents()])
 })
 </script>
 
@@ -394,13 +484,12 @@ onMounted(async () => {
     <section class="app-panel p-8 sm:p-10">
       <div class="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
         <div class="max-w-3xl">
-          <span class="info-chip">Organizer API</span>
+          <span class="info-chip">Кабинет организатора</span>
           <h2 class="mt-4 text-3xl font-semibold leading-tight text-slate-950">
             Управление своими событиями и расписанием сеансов
           </h2>
           <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-            Эта панель работает поверх защищенных organizer-контроллеров. `organizer_id` берется из
-            токена через auth-service, а не передается с фронта вручную.
+            Создавай мероприятия, публикуй карточки и собирай расписание в одном месте.
           </p>
         </div>
 
@@ -416,9 +505,7 @@ onMounted(async () => {
           </article>
 
           <article class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 shadow-sm shadow-emerald-900/5">
-            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">
-              Опубликовано
-            </p>
+            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Опубликовано</p>
             <p class="mt-2 text-3xl font-semibold text-emerald-950">{{ publishedCount }}</p>
           </article>
         </div>
@@ -441,7 +528,7 @@ onMounted(async () => {
               Мои мероприятия
             </p>
             <h3 class="mt-2 text-2xl font-semibold text-slate-950">
-              {{ authStore.user?.full_name || 'Организатор' }}
+              {{ organizerDisplayName }}
             </h3>
           </div>
 
@@ -503,11 +590,7 @@ onMounted(async () => {
 
                 <span
                   class="status-badge"
-                  :class="
-                    event.id === selectedEventId
-                      ? 'border-white/20 bg-white/10 text-white'
-                      : eventStatusClasses(event.status)
-                  "
+                  :class="event.id === selectedEventId ? 'border-white/20 bg-white/10 text-white' : eventStatusClasses(event.status)"
                 >
                   {{ eventStatusLabel(event.status) }}
                 </span>
@@ -519,6 +602,17 @@ onMounted(async () => {
               >
                 {{ event.description || 'Описание пока не добавлено.' }}
               </p>
+
+              <div v-if="event.tags.length > 0" class="mt-3 flex flex-wrap gap-2">
+                <span
+                  v-for="tag in event.tags.slice(0, 4)"
+                  :key="tag.id"
+                  class="rounded-full border px-2.5 py-1 text-[0.72rem] font-medium"
+                  :class="event.id === selectedEventId ? 'border-white/15 bg-white/10 text-white/80' : 'border-slate-200 bg-slate-50 text-slate-500'"
+                >
+                  #{{ tag.name }}
+                </span>
+              </div>
 
               <p
                 class="mt-3 text-xs"
@@ -533,7 +627,7 @@ onMounted(async () => {
         <div v-else class="mt-6 rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-6">
           <p class="text-lg font-semibold text-slate-900">Мероприятий пока нет</p>
           <p class="mt-2 text-sm leading-6 text-slate-500">
-            Начни с создания первого события. После этого тут появится список для управления.
+            Начни с первого события. После этого тут появится список для редактирования и публикации.
           </p>
         </div>
 
@@ -577,8 +671,7 @@ onMounted(async () => {
                 }}
               </h3>
               <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-                Категория и возрастной рейтинг подгружаются из `event-service`, а организатор
-                определяется на сервере по токену.
+                Заполни карточку события и подготовь ее к публикации.
               </p>
             </div>
 
@@ -653,8 +746,22 @@ onMounted(async () => {
                 v-model="eventForm.description"
                 rows="5"
                 class="field-input resize-none"
-                placeholder="Подробное описание мероприятия для карточки события"
+                placeholder="Подробно опиши мероприятие для карточки события"
               ></textarea>
+            </div>
+
+            <div class="sm:col-span-2">
+              <label class="field-label" for="organizer-event-tags">Теги</label>
+              <input
+                id="organizer-event-tags"
+                v-model="eventForm.tags"
+                type="text"
+                class="field-input"
+                placeholder="рок, open air, живая музыка"
+              />
+              <p class="mt-2 text-xs leading-5 text-slate-400">
+                Через запятую. Они помогут в поиске и персональных рекомендациях.
+              </p>
             </div>
 
             <div>
@@ -663,14 +770,6 @@ onMounted(async () => {
                 <option value="draft">Черновик</option>
                 <option value="published">Опубликовать</option>
               </select>
-            </div>
-
-            <div class="rounded-[1.5rem] border border-sky-100 bg-sky-50/80 px-5 py-4">
-              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Важно</p>
-              <p class="mt-2 text-sm leading-6 text-sky-900">
-                Организатор не выбирается вручную. Сервер сам берет его из авторизованного
-                пользователя.
-              </p>
             </div>
 
             <div class="sm:col-span-2 flex flex-col gap-4 pt-2 lg:flex-row lg:items-center lg:justify-between">
@@ -712,8 +811,7 @@ onMounted(async () => {
                 {{ activeEvent ? 'Управление расписанием' : 'Сначала сохрани мероприятие' }}
               </h3>
               <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-                Сеанс можно добавить только к существующему мероприятию. `hall_id` пока вводится
-                вручную, потому что hall-service у тебя еще не поднят.
+                Добавляй сеансы, выбирай подходящий зал и собирай расписание для продажи билетов.
               </p>
             </div>
 
@@ -726,14 +824,41 @@ onMounted(async () => {
           <div v-if="activeEvent" class="mt-8 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
             <form class="space-y-5" @submit.prevent="submitSession">
               <div>
-                <label class="field-label" for="session-hall-id">ID зала</label>
-                <input
-                  id="session-hall-id"
-                  v-model="sessionForm.hall_id"
-                  type="number"
-                  class="field-input"
-                  placeholder="101"
-                />
+                <label class="field-label" for="session-hall-id">Зал</label>
+                <select id="session-hall-id" v-model="sessionForm.hall_id" class="field-input">
+                  <option value="">Выбери зал</option>
+                  <option v-for="hall in availableHalls" :key="hall.id" :value="String(hall.id)">
+                    {{ hall.name }} · мест {{ hall.capacities.total }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50/80 px-5 py-4 text-sm leading-6 text-slate-600">
+                <p v-if="hallsLoading">Загружаем доступные залы...</p>
+                <template v-else-if="availableHalls.length > 0">
+                  <p class="font-semibold text-slate-900">
+                    {{ activeHall?.name || 'Зал пока не выбран' }}
+                  </p>
+                  <p v-if="activeHall?.address" class="mt-1 text-slate-500">
+                    {{ activeHall.address }}
+                  </p>
+                  <p class="mt-1">
+                    {{
+                      activeHall
+                        ? `Вместимость: ${activeHall.capacities.total}, уровней: ${activeHall.layout_meta.levels_count}, элементов: ${activeHall.layout_meta.elements_count}`
+                        : 'После выбора зала здесь появится его краткая сводка.'
+                    }}
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="font-semibold text-slate-900">Пока нет доступных залов</p>
+                  <p class="mt-1">
+                    Сначала создай зал в конструкторе, а потом возвращайся к расписанию.
+                  </p>
+                  <RouterLink to="/organizer/halls" class="secondary-button mt-4 inline-flex">
+                    Открыть конструктор залов
+                  </RouterLink>
+                </template>
               </div>
 
               <div>
@@ -761,12 +886,14 @@ onMounted(async () => {
                 <input
                   id="session-base-price"
                   v-model="sessionForm.base_price"
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  type="text"
+                  inputmode="decimal"
                   class="field-input"
-                  placeholder="2500"
+                  placeholder="2500 или 2500.50"
                 />
+                <p class="mt-2 text-xs leading-5 text-slate-500">
+                  Можно вводить цену через точку или запятую.
+                </p>
               </div>
 
               <div class="flex flex-col gap-3 sm:flex-row">
@@ -808,7 +935,7 @@ onMounted(async () => {
                   <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                        Зал {{ session.hall_id }}
+                        {{ session.hall?.name || `Зал #${session.hall_id}` }}
                       </p>
                       <h4 class="mt-2 text-xl font-semibold text-slate-950">
                         {{ formatDateTime(session.start_time) }}
@@ -816,8 +943,14 @@ onMounted(async () => {
                       <p class="mt-2 text-sm text-slate-500">
                         До {{ formatDateTime(session.end_time) }}
                       </p>
+                      <p v-if="session.hall?.address" class="mt-2 text-sm text-slate-500">
+                        {{ session.hall.address }}
+                      </p>
                       <p class="mt-3 text-sm font-semibold text-slate-900">
                         {{ formatPrice(session.base_price) }}
+                      </p>
+                      <p v-if="session.hall?.capacities" class="mt-2 text-sm text-slate-500">
+                        Вместимость зала: {{ session.hall.capacities.total }}
                       </p>
                     </div>
 
@@ -842,8 +975,7 @@ onMounted(async () => {
               <div v-else class="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-6">
                 <p class="text-lg font-semibold text-slate-900">Сеансов пока нет</p>
                 <p class="mt-2 text-sm leading-6 text-slate-500">
-                  После создания первого сеанса он появится в этом списке, и его можно будет
-                  редактировать или отменять.
+                  После создания первого сеанса он появится в этом списке, и его можно будет редактировать или отменять.
                 </p>
               </div>
             </div>

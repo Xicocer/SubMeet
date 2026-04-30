@@ -5,7 +5,9 @@ namespace Database\Seeders;
 use App\Models\AgeRating;
 use App\Models\Category;
 use App\Models\Event;
+use App\Models\Tag;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 class EventSeeder extends Seeder
@@ -21,6 +23,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '16+',
                 'organizer_id' => 1,
                 'status' => Event::STATUS_PUBLISHED,
+                'tags' => ['рок', 'крыша', 'живой звук', 'ночной концерт'],
             ],
             [
                 'title' => 'Большой весенний стендап',
@@ -30,6 +33,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '18+',
                 'organizer_id' => 2,
                 'status' => Event::STATUS_PUBLISHED,
+                'tags' => ['стендап', 'комики', 'весенний вечер'],
             ],
             [
                 'title' => 'Иммерсивный спектакль "Тишина сцены"',
@@ -39,6 +43,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '12+',
                 'organizer_id' => 1,
                 'status' => Event::STATUS_PUBLISHED,
+                'tags' => ['театр', 'иммерсивный', 'камерная сцена'],
             ],
             [
                 'title' => 'Городская выставка цифрового искусства',
@@ -48,6 +53,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '6+',
                 'organizer_id' => 3,
                 'status' => Event::STATUS_PUBLISHED,
+                'tags' => ['выставка', 'digital art', 'инсталляции'],
             ],
             [
                 'title' => 'Летний фестиваль света',
@@ -57,6 +63,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '0+',
                 'organizer_id' => 3,
                 'status' => Event::STATUS_DRAFT,
+                'tags' => ['фестиваль', 'свет', 'городской open air'],
             ],
             [
                 'title' => 'Акустический квартирник для партнеров',
@@ -66,6 +73,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '16+',
                 'organizer_id' => 2,
                 'status' => Event::STATUS_DRAFT,
+                'tags' => ['акустика', 'квартирник', 'камерный концерт'],
             ],
         ];
 
@@ -77,7 +85,7 @@ class EventSeeder extends Seeder
                 throw new InvalidArgumentException('Category or age rating for event seeding was not found.');
             }
 
-            Event::query()->updateOrCreate(
+            $event = Event::query()->updateOrCreate(
                 [
                     'title' => $item['title'],
                     'organizer_id' => $item['organizer_id'],
@@ -90,6 +98,26 @@ class EventSeeder extends Seeder
                     'status' => $item['status'],
                 ]
             );
+
+            $tagIds = collect($item['tags'] ?? [])
+                ->map(fn ($tagName) => trim((string) $tagName))
+                ->filter(fn (string $tagName) => $tagName !== '')
+                ->map(function (string $tagName): int {
+                    $slug = Str::slug($tagName);
+
+                    if ($slug === '') {
+                        $slug = Str::lower(Str::replace(' ', '-', Str::squish($tagName)));
+                    }
+
+                    return Tag::query()->firstOrCreate(
+                        ['slug' => $slug],
+                        ['name' => Str::squish($tagName)],
+                    )->id;
+                })
+                ->values()
+                ->all();
+
+            $event->tags()->sync($tagIds);
         }
     }
 }

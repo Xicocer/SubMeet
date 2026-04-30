@@ -44,34 +44,15 @@ const login = async () => {
 
 <template>
   <section class="app-panel overflow-hidden">
-    <div class="grid lg:grid-cols-[1.05fr_0.95fr]">
-      <div class="border-b border-white/60 px-8 py-10 lg:border-b-0 lg:border-r lg:px-10">
-        <span class="info-chip">Вход в систему</span>
-        <h2 class="mt-5 text-4xl font-semibold leading-tight text-slate-950">
-          Быстрый доступ к профилю и рабочим разделам проекта
+    <div class="grid lg:grid-cols-[0.92fr_1.08fr]">
+      <div class="border-b border-white/60 bg-[linear-gradient(145deg,rgba(37,99,235,0.08),rgba(255,255,255,0.88))] px-8 py-10 lg:border-b-0 lg:border-r lg:px-10">
+        <h2 class="text-4xl font-semibold leading-tight text-slate-950">
+          Возвращайся к афише, бронированию и своему аккаунту без лишних шагов.
         </h2>
         <p class="mt-4 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-          После входа пользователь попадает в личный кабинет, а организатор сразу получает доступ к
-          управлению своими событиями и сеансами.
+          Войди по email и паролю, чтобы продолжить выбор событий, управлять бронированиями или
+          открыть кабинет организатора.
         </p>
-
-        <div class="mt-8 grid gap-4 sm:grid-cols-2">
-          <article class="soft-card">
-            <p class="text-sm font-semibold text-slate-900">Отдельный auth-service</p>
-            <p class="mt-2 text-sm leading-6 text-slate-600">
-              Токен, профиль и роли приходят из отдельного сервиса авторизации, а не смешиваются с
-              событиями.
-            </p>
-          </article>
-
-          <article class="soft-card">
-            <p class="text-sm font-semibold text-slate-900">Реальные роли</p>
-            <p class="mt-2 text-sm leading-6 text-slate-600">
-              Если у пользователя роль organizer, фронт откроет ему кабинет организатора с
-              защищенными API.
-            </p>
-          </article>
-        </div>
       </div>
 
       <div class="px-8 py-10 lg:px-10">

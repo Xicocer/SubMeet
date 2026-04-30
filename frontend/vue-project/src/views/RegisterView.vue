@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import type { RegisterPayload } from '@/types/auth'
+import { formatPhoneMask, isPhoneMaskComplete } from '@/utils/phone'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,7 +28,7 @@ const canSubmit = computed(() => {
   return (
     form.full_name.trim() !== '' &&
     form.email.trim() !== '' &&
-    form.phone.trim() !== '' &&
+    isPhoneMaskComplete(form.phone) &&
     form.birth_date.trim() !== '' &&
     form.password.trim() !== '' &&
     form.password_confirmation.trim() !== '' &&
@@ -51,40 +52,24 @@ const register = async () => {
     console.error(error)
   }
 }
+
+const handlePhoneInput = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  form.phone = formatPhoneMask(input.value)
+}
 </script>
 
 <template>
   <section class="app-panel overflow-hidden">
     <div class="grid lg:grid-cols-[0.96fr_1.04fr]">
       <div class="border-b border-white/10 bg-slate-950 px-8 py-10 text-white lg:border-b-0 lg:border-r lg:px-10">
-        <span class="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/75">
-          Новый аккаунт
-        </span>
         <h2 class="mt-5 text-4xl font-semibold leading-tight">
-          Регистрация пользователя с нормальной структурой данных
+          Создай аккаунт и открой доступ к событиям, билетам и личному кабинету.
         </h2>
         <p class="mt-4 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
-          Форма сразу собирает все поля, которые нужны `auth-service`: ФИО, телефон, дату рождения
-          и пароль с подтверждением.
+          Заполни основные данные один раз, и после регистрации профиль сразу будет готов к
+          использованию.
         </p>
-
-        <div class="mt-8 space-y-4">
-          <article class="rounded-[1.75rem] border border-white/10 bg-white/5 p-6">
-            <p class="text-sm font-semibold text-white">Подходит под диплом</p>
-            <p class="mt-2 text-sm leading-6 text-white/70">
-              Тут уже не просто шаблонный логин, а полноценный пользовательский контур с ролями и
-              защищенным профилем.
-            </p>
-          </article>
-
-          <article class="rounded-[1.75rem] border border-white/10 bg-white/5 p-6">
-            <p class="text-sm font-semibold text-white">Меньше ошибок</p>
-            <p class="mt-2 text-sm leading-6 text-white/70">
-              Кнопка регистрации активируется только когда форма полностью заполнена и пароли
-              совпадают.
-            </p>
-          </article>
-        </div>
       </div>
 
       <div class="px-8 py-10 lg:px-10">
@@ -92,6 +77,12 @@ const register = async () => {
           <h3 class="text-2xl font-semibold text-slate-950">Создать аккаунт</h3>
           <p class="mt-2 text-sm leading-6 text-slate-500">
             После регистрации пользователь автоматически авторизуется и попадет в личный кабинет.
+          </p>
+          <p class="mt-3 text-sm leading-6 text-slate-500">
+            Если ты представляешь площадку, клуб или компанию, используй
+            <RouterLink class="font-semibold text-sky-700 hover:text-sky-800" to="/register/organizer">
+              регистрацию организатора
+            </RouterLink>.
           </p>
         </div>
 
@@ -136,7 +127,8 @@ const register = async () => {
               type="tel"
               autocomplete="tel"
               class="field-input"
-              placeholder="+7 999 123-45-67"
+              placeholder="+7 (999) 123-45-67"
+              @input="handlePhoneInput"
             />
           </div>
 

@@ -1,0 +1,34 @@
+.run/
+
+# Python environments and caches
+.venv/
+venv/
+env/
+ENV/
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python packaging/build artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Local ML/recommendation service runtime files
+services/recommendation-service/.venv/
+services/recommendation-service/**/__pycache__/
+ml_recommended/.venv/
+ml_recommended/venv/
+ml_recommended/**/__pycache__/

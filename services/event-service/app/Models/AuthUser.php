@@ -12,6 +12,7 @@ class AuthUser extends Model
     protected $fillable = [
         'auth_user_id',
         'full_name',
+        'company_name',
         'email',
         'phone',
         'birth_date',

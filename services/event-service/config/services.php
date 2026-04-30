@@ -39,4 +39,16 @@ return [
         'base_url' => env('AUTH_SERVICE_URL', 'http://127.0.0.1:8000/api'),
     ],
 
+    'halls' => [
+        'base_url' => env('HALLS_SERVICE_URL', 'http://127.0.0.1:8002/api'),
+    ],
+
+    'booking' => [
+        'base_url' => env('BOOKING_SERVICE_URL', 'http://127.0.0.1:8003/api'),
+    ],
+
+    'internal' => [
+        'api_key' => env('INTERNAL_API_KEY', 'submeet-internal-key'),
+    ],
+
 ];

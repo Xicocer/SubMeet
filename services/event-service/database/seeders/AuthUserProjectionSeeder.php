@@ -13,6 +13,7 @@ class AuthUserProjectionSeeder extends Seeder
             [
                 'auth_user_id' => 1,
                 'full_name' => 'Марина Соколова',
+                'company_name' => 'ДКХ',
                 'email' => 'marina.sokolova@example.com',
                 'phone' => '+79990000001',
                 'birth_date' => '1994-03-18',
@@ -23,6 +24,7 @@ class AuthUserProjectionSeeder extends Seeder
             [
                 'auth_user_id' => 2,
                 'full_name' => 'Артем Воронов',
+                'company_name' => 'Milo Concert Hall',
                 'email' => 'artem.voronov@example.com',
                 'phone' => '+79990000002',
                 'birth_date' => '1991-09-07',
@@ -32,7 +34,8 @@ class AuthUserProjectionSeeder extends Seeder
             ],
             [
                 'auth_user_id' => 3,
-                'full_name' => 'City Light Events',
+                'full_name' => 'Екатерина Новикова',
+                'company_name' => 'City Light Events',
                 'email' => 'citylight@example.com',
                 'phone' => '+79990000003',
                 'birth_date' => '1989-06-14',
@@ -47,6 +50,7 @@ class AuthUserProjectionSeeder extends Seeder
                 ['auth_user_id' => $organizer['auth_user_id']],
                 [
                     'full_name' => $organizer['full_name'],
+                    'company_name' => $organizer['company_name'] ?? null,
                     'email' => $organizer['email'],
                     'phone' => $organizer['phone'],
                     'birth_date' => $organizer['birth_date'],

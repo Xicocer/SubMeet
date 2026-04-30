@@ -4,12 +4,18 @@ import type {
   LoginPayload,
   MeResponse,
   MessageResponse,
+  OrganizerRegisterPayload,
   RegisterPayload,
   UpdateProfilePayload,
 } from '@/types/auth'
 
 export const registerRequest = async (payload: RegisterPayload) => {
   const { data } = await authApi.post<AuthResponse>('/register', payload)
+  return data
+}
+
+export const registerOrganizerRequest = async (payload: OrganizerRegisterPayload) => {
+  const { data } = await authApi.post<AuthResponse>('/organizers/register', payload)
   return data
 }
 

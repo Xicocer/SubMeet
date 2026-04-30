@@ -27,6 +27,7 @@ class AuthUserProjector
             ],
             [
                 'full_name' => $payload['full_name'],
+                'company_name' => data_get($payload, 'organizer_profile.company_name'),
                 'email' => $payload['email'],
                 'phone' => $payload['phone'] ?? null,
                 'birth_date' => $payload['birth_date'] ?? null,

@@ -3,8 +3,14 @@ import { pinia } from '@/pinia'
 import { useAuthStore } from '@/stores/auth'
 import EventDetailsView from '@/views/EventDetailsView.vue'
 import EventsView from '@/views/EventsView.vue'
+import CheckoutView from '@/views/CheckoutView.vue'
 import LoginView from '@/views/LoginView.vue'
+import OrganizerDashboardView from '@/views/OrganizerDashboardView.vue'
 import OrganizerEventsView from '@/views/OrganizerEventsView.vue'
+import OrganizerHallLibraryView from '@/views/OrganizerHallLibraryView.vue'
+import OrganizerHallsView from '@/views/OrganizerHallsView.vue'
+import OrganizerRegisterView from '@/views/OrganizerRegisterView.vue'
+import OrganizerTicketVerificationView from '@/views/OrganizerTicketVerificationView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import RegisterView from '@/views/RegisterView.vue'
 
@@ -38,15 +44,57 @@ const router = createRouter({
       meta: { publicOnly: true },
     },
     {
+      path: '/register/organizer',
+      name: 'organizer-register',
+      component: OrganizerRegisterView,
+      meta: { publicOnly: true },
+    },
+    {
       path: '/profile',
       name: 'profile',
       component: ProfileView,
       meta: { requiresAuth: true },
     },
     {
+      path: '/checkout/:id',
+      name: 'checkout',
+      component: CheckoutView,
+      meta: { requiresAuth: true, immersive: true },
+    },
+    {
+      path: '/organizer/dashboard',
+      name: 'organizer-dashboard',
+      component: OrganizerDashboardView,
+      meta: { requiresAuth: true, requiresOrganizer: true },
+    },
+    {
       path: '/organizer/events',
       name: 'organizer-events',
       component: OrganizerEventsView,
+      meta: { requiresAuth: true, requiresOrganizer: true },
+    },
+    {
+      path: '/organizer/halls',
+      name: 'organizer-halls',
+      component: OrganizerHallLibraryView,
+      meta: { requiresAuth: true, requiresOrganizer: true },
+    },
+    {
+      path: '/organizer/halls/new',
+      name: 'organizer-hall-create',
+      component: OrganizerHallsView,
+      meta: { requiresAuth: true, requiresOrganizer: true, immersive: true },
+    },
+    {
+      path: '/organizer/halls/:id/edit',
+      name: 'organizer-hall-edit',
+      component: OrganizerHallsView,
+      meta: { requiresAuth: true, requiresOrganizer: true, immersive: true },
+    },
+    {
+      path: '/organizer/tickets',
+      name: 'organizer-tickets',
+      component: OrganizerTicketVerificationView,
       meta: { requiresAuth: true, requiresOrganizer: true },
     },
   ],
