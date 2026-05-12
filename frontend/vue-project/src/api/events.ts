@@ -1,5 +1,6 @@
 import { eventApi } from './axios'
 import type { OrganizerEventDashboardResponse } from '@/types/analytics'
+import type { EventAssistantResponse } from '@/types/assistant'
 import type {
   AgeRating,
   Category,
@@ -31,6 +32,15 @@ export const getAgeRatingsRequest = async () => {
 
 export const getEventsRequest = async (params: EventListFilters) => {
   const { data } = await eventApi.get<PaginatedResponse<PublicEvent>>('/events', { params })
+  return data
+}
+
+export const getEventAssistantRequest = async (query: string, limit = 4) => {
+  const { data } = await eventApi.post<EventAssistantResponse>('/events/assistant', {
+    query,
+    limit,
+  })
+
   return data
 }
 

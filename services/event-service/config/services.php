@@ -47,6 +47,17 @@ return [
         'base_url' => env('BOOKING_SERVICE_URL', 'http://127.0.0.1:8003/api'),
     ],
 
+    'recommendations' => [
+        'base_url' => env('RECOMMENDATION_SERVICE_URL', 'http://127.0.0.1:8004/api'),
+    ],
+
+    'concierge' => [
+        'provider' => env('EVENT_ASSISTANT_PROVIDER', 'openai'),
+        'model' => env('EVENT_ASSISTANT_MODEL'),
+        'timeout' => (int) env('EVENT_ASSISTANT_TIMEOUT', 30),
+        'candidate_limit' => (int) env('EVENT_ASSISTANT_CANDIDATE_LIMIT', 12),
+    ],
+
     'internal' => [
         'api_key' => env('INTERNAL_API_KEY', 'submeet-internal-key'),
     ],

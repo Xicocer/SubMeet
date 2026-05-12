@@ -25,6 +25,7 @@ class BookingService
         private readonly SessionSnapshotSynchronizer $snapshotSynchronizer,
         private readonly PaymentGatewayInterface $paymentGateway,
         private readonly TicketDocumentService $ticketDocumentService,
+        private readonly TicketDispatchService $ticketDispatchService,
     ) {
     }
 
@@ -230,13 +231,65 @@ class BookingService
 
     public function ensureTicketIssued(Booking $booking): Booking
     {
-        if ($booking->ticket_pdf_path !== null && $booking->ticket_issued_at !== null) {
-            return $booking->fresh(['snapshot', 'items.seat', 'items.standingArea', 'payment']);
-        }
+        return DB::transaction(function () use ($booking): Booking {
+            $lockedBooking = Booking::query()
+                ->with(['snapshot', 'items.seat', 'items.standingArea', 'payment'])
+                ->whereKey($booking->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return $this->ticketDocumentService->issueForBooking(
-            $booking->fresh(['snapshot', 'items.seat', 'items.standingArea', 'payment']),
-        );
+            if ($lockedBooking->ticket_pdf_path !== null && $lockedBooking->ticket_issued_at !== null) {
+                return $lockedBooking;
+            }
+
+            return $this->ticketDocumentService->issueForBooking($lockedBooking);
+        }, 3);
+    }
+
+    public function expirePendingBookings(?int $snapshotId = null, int $chunk = 100): int
+    {
+        $chunk = max(1, $chunk);
+        $expiredCount = 0;
+
+        do {
+            $expiredBookingIds = Booking::query()
+                ->awaitingCheckout()
+                ->when($snapshotId !== null, fn ($query) => $query->where('session_snapshot_id', $snapshotId))
+                ->whereNotNull('reserved_until')
+                ->where('reserved_until', '<=', now())
+                ->orderBy('id')
+                ->limit($chunk)
+                ->pluck('id');
+
+            foreach ($expiredBookingIds as $expiredBookingId) {
+                $wasExpired = DB::transaction(function () use ($expiredBookingId): bool {
+                    $booking = Booking::query()
+                        ->with(['items', 'payment'])
+                        ->whereKey($expiredBookingId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (
+                        $booking === null ||
+                        !in_array($booking->status, [Booking::STATUS_RESERVED, Booking::STATUS_PAYMENT_PENDING], true) ||
+                        $booking->reserved_until === null ||
+                        $booking->reserved_until->isFuture()
+                    ) {
+                        return false;
+                    }
+
+                    $this->releaseBooking($booking, Booking::STATUS_EXPIRED);
+
+                    return true;
+                }, 3);
+
+                if ($wasExpired) {
+                    $expiredCount++;
+                }
+            }
+        } while ($expiredBookingIds->count() === $chunk);
+
+        return $expiredCount;
     }
 
     /**
@@ -536,7 +589,17 @@ class BookingService
             ]);
         }
 
-        return $this->ensureTicketIssued($booking);
+        if ($this->ticketDispatchService->shouldIssueSynchronously()) {
+            return $this->ensureTicketIssued($booking->fresh(['snapshot', 'items', 'payment']));
+        }
+
+        $bookingId = $booking->id;
+
+        DB::afterCommit(function () use ($bookingId): void {
+            $this->ticketDispatchService->dispatch($bookingId);
+        });
+
+        return $booking->fresh(['snapshot', 'items.seat', 'items.standingArea', 'payment']);
     }
 
     private function mapGatewayPaymentStatus(PaymentGatewayResult $gatewayResult): string
@@ -694,18 +757,7 @@ class BookingService
 
     private function expirePendingBookingsForSnapshot(int $snapshotId): void
     {
-        $expiredBookings = Booking::query()
-            ->with(['items', 'payment'])
-            ->where('session_snapshot_id', $snapshotId)
-            ->awaitingCheckout()
-            ->whereNotNull('reserved_until')
-            ->where('reserved_until', '<=', now())
-            ->lockForUpdate()
-            ->get();
-
-        foreach ($expiredBookings as $booking) {
-            $this->releaseBooking($booking, Booking::STATUS_EXPIRED);
-        }
+        $this->expirePendingBookings(snapshotId: $snapshotId, chunk: 250);
     }
 
     private function releaseBooking(Booking $booking, string $targetStatus): void

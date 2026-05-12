@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from time import perf_counter
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .clients import UpstreamServiceError
 from .config import Settings, get_settings
+from .logging import configure_logging, get_logger
 from .schemas import (
     HealthResponse,
     InteractionCreateRequest,
@@ -20,6 +23,8 @@ from .schemas import (
     UserContext,
 )
 from .service import RecommendationEngine
+
+logger = get_logger("recommendation.http")
 
 
 def get_engine(request: Request) -> RecommendationEngine:
@@ -48,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         get_settings.cache_clear()
 
     active_settings = settings or get_settings()
+    configure_logging(active_settings)
 
     app = FastAPI(
         title=active_settings.app_name,
@@ -63,6 +69,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def log_http_requests(request: Request, call_next):
+        request_id = request.headers.get("X-Request-Id") or str(uuid4())
+        started_at = perf_counter()
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception(
+                "http_request_failed",
+                extra={
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "query_string": request.url.query or None,
+                    "status_code": 500,
+                    "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+                    "client_ip": request.client.host if request.client else None,
+                },
+            )
+            raise
+
+        response.headers["X-Request-Id"] = request_id
+
+        if request.url.path != "/health":
+            logger.info(
+                "http_request",
+                extra={
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "query_string": request.url.query or None,
+                    "status_code": response.status_code,
+                    "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+                    "client_ip": request.client.host if request.client else None,
+                },
+            )
+
+        return response
 
     @app.get("/health", response_model=HealthResponse)
     def health(

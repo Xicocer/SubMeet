@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AdminIncidentController;
 use App\Http\Controllers\Api\InternalRecommendationController;
 use App\Http\Controllers\Api\OrganizerDashboardController;
 use App\Http\Controllers\Api\OrganizerGuardController;
@@ -34,4 +36,9 @@ Route::middleware(['api.auth', 'api.organizer'])->prefix('organizer')->group(fun
     Route::get('/guards/sessions/{id}/booking-impact', [OrganizerGuardController::class, 'sessionBookingImpact']);
     Route::get('/dashboard', OrganizerDashboardController::class);
     Route::post('/tickets/verify', [TicketVerificationController::class, 'store']);
+});
+
+Route::middleware('admin.auth')->prefix('admin')->group(function () {
+    Route::get('/dashboard', AdminDashboardController::class);
+    Route::get('/incidents', [AdminIncidentController::class, 'index']);
 });

@@ -45,6 +45,12 @@ class AuthenticateOrganizer
             ], 403);
         }
 
+        if (($user['organizer_profile']['moderation_status'] ?? 'approved') !== 'approved') {
+            return response()->json([
+                'message' => 'Organizer account is awaiting approval or restricted by moderation.',
+            ], 403);
+        }
+
         $request->attributes->set('auth_user', $user);
 
         return $next($request);

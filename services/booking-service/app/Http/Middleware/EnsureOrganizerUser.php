@@ -19,6 +19,12 @@ class EnsureOrganizerUser
             ], 403);
         }
 
+        if (data_get($user, 'organizer_profile.moderation_status', 'approved') !== 'approved') {
+            return response()->json([
+                'message' => 'Organizer account is awaiting approval or restricted by moderation.',
+            ], 403);
+        }
+
         return $next($request);
     }
 }

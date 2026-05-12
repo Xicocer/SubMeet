@@ -1,7 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { pinia } from '@/pinia'
 import { useAuthStore } from '@/stores/auth'
+import AdminDashboardView from '@/views/AdminDashboardView.vue'
+import AdminDictionariesView from '@/views/AdminDictionariesView.vue'
+import AdminEventsView from '@/views/AdminEventsView.vue'
+import AdminIncidentsView from '@/views/AdminIncidentsView.vue'
+import AdminOrganizersView from '@/views/AdminOrganizersView.vue'
 import EventDetailsView from '@/views/EventDetailsView.vue'
+import EventConciergeView from '@/views/EventConciergeView.vue'
 import EventsView from '@/views/EventsView.vue'
 import CheckoutView from '@/views/CheckoutView.vue'
 import LoginView from '@/views/LoginView.vue'
@@ -32,6 +38,11 @@ const router = createRouter({
       component: EventDetailsView,
     },
     {
+      path: '/assistant',
+      name: 'event-concierge',
+      component: EventConciergeView,
+    },
+    {
       path: '/login',
       name: 'login',
       component: LoginView,
@@ -60,6 +71,36 @@ const router = createRouter({
       name: 'checkout',
       component: CheckoutView,
       meta: { requiresAuth: true, immersive: true },
+    },
+    {
+      path: '/admin/dashboard',
+      name: 'admin-dashboard',
+      component: AdminDashboardView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/organizers',
+      name: 'admin-organizers',
+      component: AdminOrganizersView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/events',
+      name: 'admin-events',
+      component: AdminEventsView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/incidents',
+      name: 'admin-incidents',
+      component: AdminIncidentsView,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/dictionaries',
+      name: 'admin-dictionaries',
+      component: AdminDictionariesView,
+      meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
       path: '/organizer/dashboard',
@@ -121,6 +162,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresOrganizer && !authStore.isOrganizer) {
+    return { name: 'events' }
+  }
+
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
     return { name: 'events' }
   }
 

@@ -7,6 +7,9 @@ export interface Role {
 
 export interface OrganizerProfile {
   company_name: string
+  moderation_status?: 'pending' | 'approved' | 'rejected' | 'blocked'
+  moderation_note?: string | null
+  moderated_at?: string | null
   created_at?: string
   updated_at?: string
 }

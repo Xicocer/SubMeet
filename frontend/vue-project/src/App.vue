@@ -11,7 +11,13 @@ const authStore = useAuthStore()
 const isImmersiveRoute = computed(() => route.meta.immersive === true)
 
 const isCatalogLinkActive = computed(() => route.path === '/events' || route.path.startsWith('/events/'))
+const isConciergeLinkActive = computed(() => route.path.startsWith('/assistant'))
 const isProfileLinkActive = computed(() => route.path.startsWith('/profile'))
+const isAdminDashboardLinkActive = computed(() => route.path.startsWith('/admin/dashboard'))
+const isAdminOrganizersLinkActive = computed(() => route.path.startsWith('/admin/organizers'))
+const isAdminEventsLinkActive = computed(() => route.path.startsWith('/admin/events'))
+const isAdminIncidentsLinkActive = computed(() => route.path.startsWith('/admin/incidents'))
+const isAdminDictionariesLinkActive = computed(() => route.path.startsWith('/admin/dictionaries'))
 const isOrganizerDashboardLinkActive = computed(() => route.path.startsWith('/organizer/dashboard'))
 const isOrganizerEventsLinkActive = computed(() => route.path.startsWith('/organizer/events'))
 const isOrganizerHallsLinkActive = computed(() => route.path.startsWith('/organizer/halls'))
@@ -79,12 +85,65 @@ onMounted(async () => {
                 </RouterLink>
 
                 <RouterLink
+                  to="/assistant"
+                  class="store-link"
+                  :class="isConciergeLinkActive ? 'store-link-active' : ''"
+                >
+                  Митя
+                </RouterLink>
+
+                <RouterLink
                   v-if="authStore.isAuthenticated"
                   to="/profile"
                   class="store-link"
                   :class="isProfileLinkActive ? 'store-link-active' : ''"
                 >
                   Профиль
+                </RouterLink>
+
+                <RouterLink
+                  v-if="authStore.isAdmin"
+                  to="/admin/dashboard"
+                  class="store-link"
+                  :class="isAdminDashboardLinkActive ? 'store-link-active' : ''"
+                >
+                  Admin
+                </RouterLink>
+
+                <RouterLink
+                  v-if="authStore.isAdmin"
+                  to="/admin/organizers"
+                  class="store-link"
+                  :class="isAdminOrganizersLinkActive ? 'store-link-active' : ''"
+                >
+                  Организаторы
+                </RouterLink>
+
+                <RouterLink
+                  v-if="authStore.isAdmin"
+                  to="/admin/events"
+                  class="store-link"
+                  :class="isAdminEventsLinkActive ? 'store-link-active' : ''"
+                >
+                  Модерация
+                </RouterLink>
+
+                <RouterLink
+                  v-if="authStore.isAdmin"
+                  to="/admin/incidents"
+                  class="store-link"
+                  :class="isAdminIncidentsLinkActive ? 'store-link-active' : ''"
+                >
+                  Инциденты
+                </RouterLink>
+
+                <RouterLink
+                  v-if="authStore.isAdmin"
+                  to="/admin/dictionaries"
+                  class="store-link"
+                  :class="isAdminDictionariesLinkActive ? 'store-link-active' : ''"
+                >
+                  Справочники
                 </RouterLink>
 
                 <RouterLink
@@ -175,12 +234,65 @@ onMounted(async () => {
             </RouterLink>
 
             <RouterLink
+              to="/assistant"
+              class="store-link"
+              :class="isConciergeLinkActive ? 'store-link-active' : ''"
+            >
+              Митя
+            </RouterLink>
+
+            <RouterLink
               v-if="authStore.isAuthenticated"
               to="/profile"
               class="store-link"
               :class="isProfileLinkActive ? 'store-link-active' : ''"
             >
               Профиль
+            </RouterLink>
+
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/dashboard"
+              class="store-link"
+              :class="isAdminDashboardLinkActive ? 'store-link-active' : ''"
+            >
+              Admin
+            </RouterLink>
+
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/organizers"
+              class="store-link"
+              :class="isAdminOrganizersLinkActive ? 'store-link-active' : ''"
+            >
+              Организаторы
+            </RouterLink>
+
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/events"
+              class="store-link"
+              :class="isAdminEventsLinkActive ? 'store-link-active' : ''"
+            >
+              Модерация
+            </RouterLink>
+
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/incidents"
+              class="store-link"
+              :class="isAdminIncidentsLinkActive ? 'store-link-active' : ''"
+            >
+              Инциденты
+            </RouterLink>
+
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/dictionaries"
+              class="store-link"
+              :class="isAdminDictionariesLinkActive ? 'store-link-active' : ''"
+            >
+              Справочники
             </RouterLink>
 
             <RouterLink

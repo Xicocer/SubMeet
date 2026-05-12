@@ -11,6 +11,8 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        // Hall service seeders can be added here when the editor MVP is ready.
+        $this->call([
+            HallSeeder::class,
+        ]);
     }
 }

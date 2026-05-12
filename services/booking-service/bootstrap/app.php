@@ -12,8 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(\App\Http\Middleware\LogHttpRequests::class);
+
         $middleware->alias([
             'api.auth' => \App\Http\Middleware\AuthenticateApiUser::class,
+            'admin.auth' => \App\Http\Middleware\AuthenticateAdmin::class,
             'api.organizer' => \App\Http\Middleware\EnsureOrganizerUser::class,
             'internal.api' => \App\Http\Middleware\EnsureInternalApiAccess::class,
         ]);

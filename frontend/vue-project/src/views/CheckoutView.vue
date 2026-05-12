@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import {
   cancelBookingRequest,
   downloadTicketRequest,
@@ -12,6 +13,8 @@ import { formatDateTime, formatPrice } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+const CHECKOUT_CONTEXT_KEY = 'submeet_checkout_context'
 
 const booking = ref<UserBooking | null>(null)
 const loading = ref(false)
@@ -23,6 +26,73 @@ const successMessage = ref('')
 const bookingId = computed(() => Number(route.params.id))
 const isConfirmed = computed(() => booking.value?.status === 'confirmed')
 const isCancelledLike = computed(() => booking.value?.status === 'cancelled' || booking.value?.status === 'expired')
+
+const readCheckoutContext = () => {
+  try {
+    const raw = sessionStorage.getItem(CHECKOUT_CONTEXT_KEY)
+
+    if (!raw) {
+      return null
+    }
+
+    const parsed = JSON.parse(raw) as {
+      bookingId?: number
+      userId?: number
+      createdAt?: string
+    }
+
+    if (parsed.bookingId !== bookingId.value) {
+      return null
+    }
+
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const clearCheckoutContext = () => {
+  const context = readCheckoutContext()
+
+  if (!context) {
+    return
+  }
+
+  try {
+    sessionStorage.removeItem(CHECKOUT_CONTEXT_KEY)
+  } catch {
+  }
+}
+
+const resolveLoadErrorMessage = (requestError: unknown) => {
+  const errorCandidate = requestError as {
+    response?: {
+      status?: number
+      data?: {
+        message?: string
+      }
+    }
+  }
+
+  const status = errorCandidate.response?.status
+  const serverMessage = errorCandidate.response?.data?.message
+  const checkoutContext = readCheckoutContext()
+  const currentUserId = authStore.user?.id ?? null
+
+  if (status === 404) {
+    if (checkoutContext?.userId && currentUserId && checkoutContext.userId !== currentUserId) {
+      return 'Страница оплаты открыта под другим аккаунтом. Покупка была начата в одном профиле, а checkout сейчас открыт уже в другом. Войдите тем пользователем, который начал покупку.'
+    }
+
+    return 'Бронь для этой страницы оплаты не найдена. Возможно, она принадлежит другому аккаунту, была отменена или уже недоступна.'
+  }
+
+  if (status === 401) {
+    return 'Сессия оплаты больше не действует. Войдите в тот же аккаунт, из которого начинали покупку, и откройте checkout заново.'
+  }
+
+  return serverMessage || 'Не удалось загрузить страницу оплаты.'
+}
 
 const lineItemsLabel = computed(() => {
   if (!booking.value || booking.value.items.length === 0) {
@@ -45,9 +115,10 @@ const loadBooking = async () => {
 
   try {
     booking.value = await getMyBookingRequest(bookingId.value)
+    clearCheckoutContext()
   } catch (requestError) {
     console.error(requestError)
-    error.value = 'Не удалось загрузить страницу оплаты.'
+    error.value = resolveLoadErrorMessage(requestError)
   } finally {
     loading.value = false
   }
@@ -63,7 +134,9 @@ const completePayment = async () => {
 
   try {
     booking.value = (await refreshBookingPaymentRequest(booking.value.id)).booking
-    successMessage.value = 'Оплата подтверждена. Билет уже выпущен и готов к скачиванию.'
+    successMessage.value = booking.value.ticket
+      ? 'Оплата подтверждена. Билет уже готов к скачиванию.'
+      : 'Оплата подтверждена. PDF-билет генерируется в фоне и скоро станет доступен.'
   } catch (requestError) {
     console.error(requestError)
     error.value = 'Не удалось подтвердить оплату.'
@@ -216,7 +289,11 @@ onMounted(loadBooking)
           {{ formatPrice(booking.total_amount) }}
         </p>
         <p class="mt-3 text-sm leading-6 text-slate-500">
-          {{ booking.payment?.status === 'paid' ? 'Платеж уже подтвержден.' : 'После подтверждения оплаты билет сразу станет доступен в PDF.' }}
+          {{
+            booking.payment?.status === 'paid'
+              ? (booking.ticket ? 'Платеж уже подтвержден, билет готов.' : 'Платеж подтвержден, PDF-билет еще генерируется.')
+              : 'После подтверждения оплаты билет создастся в фоновой очереди без лишней задержки для пользователя.'
+          }}
         </p>
 
         <div class="mt-8 space-y-3">

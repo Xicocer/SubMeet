@@ -1,0 +1,58 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: auth-service
+    static_configs:
+      - targets: [localhost]
+        labels:
+          stack: submeet
+          service: auth-service
+          __path__: /workspace/services/auth-service/storage/logs/*structured*.log*
+
+  - job_name: event-service
+    static_configs:
+      - targets: [localhost]
+        labels:
+          stack: submeet
+          service: event-service
+          __path__: /workspace/services/event-service/storage/logs/*structured*.log*
+
+  - job_name: halls-service
+    static_configs:
+      - targets: [localhost]
+        labels:
+          stack: submeet
+          service: halls-service
+          __path__: /workspace/services/halls-service/storage/logs/*structured*.log*
+
+  - job_name: booking-service
+    static_configs:
+      - targets: [localhost]
+        labels:
+          stack: submeet
+          service: booking-service
+          __path__: /workspace/services/booking-service/storage/logs/*structured*.log*
+
+  - job_name: admin-service
+    static_configs:
+      - targets: [localhost]
+        labels:
+          stack: submeet
+          service: admin-service
+          __path__: /workspace/services/admin-service/storage/logs/*structured*.log*
+
+  - job_name: recommendation-service
+    static_configs:
+      - targets: [localhost]
+        labels:
+          stack: submeet
+          service: recommendation-service
+          __path__: /workspace/services/recommendation-service/logs/*structured*.log*

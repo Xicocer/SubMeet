@@ -4,6 +4,7 @@ import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 import { getRecommendationPreviewRequest, getUserRecommendationsRequest } from '@/api/recommendations'
 import {
   addWantToGoRequest,
+  getEventAssistantRequest,
   getAgeRatingsRequest,
   getCategoriesRequest,
   getEventsRequest,
@@ -11,6 +12,7 @@ import {
 } from '@/api/events'
 import WantToGoButton from '@/components/WantToGoButton.vue'
 import { useAuthStore } from '@/stores/auth'
+import type { EventAssistantResponse } from '@/types/assistant'
 import type {
   AgeRating,
   Category,
@@ -21,6 +23,7 @@ import type {
 } from '@/types/event'
 import type { RecommendationItem } from '@/types/recommendation'
 import { formatDate, formatPrice } from '@/utils/format'
+import { renderMarkdown } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,11 +33,15 @@ const categories = ref<Category[]>([])
 const ageRatings = ref<AgeRating[]>([])
 const events = ref<PublicEvent[]>([])
 const recommendations = ref<RecommendationItem[]>([])
+const assistantResponse = ref<EventAssistantResponse | null>(null)
 const loading = ref(false)
 const recommendationsLoading = ref(false)
+const assistantLoading = ref(false)
 const error = ref('')
 const recommendationsError = ref('')
+const assistantError = ref('')
 const wantToGoUpdatingIds = ref<number[]>([])
+const assistantQuery = ref('')
 
 const filters = reactive({
   search: '',
@@ -60,6 +67,12 @@ const sortOptions: Array<{ value: EventSort; label: string }> = [
   { value: 'oldest', label: 'Сначала ранние' },
   { value: 'title_asc', label: 'Название А-Я' },
   { value: 'title_desc', label: 'Название Я-А' },
+]
+
+const assistantSuggestions = [
+  'Куда сходить сегодня вечером?',
+  'На следующей неделе планирую свидание, что ты посоветуешь?',
+  'Хочу с друзьями что-то энергичное на выходных.',
 ]
 
 const eventCopyByCategory: Record<string, string> = {
@@ -98,10 +111,24 @@ const activeFilterCount = computed(() => {
 
 const featuredCategoryName = computed(() => featuredEvent.value?.category?.name || 'События месяца')
 const popularCategories = computed(() => categories.value.slice(0, 6))
-const recommendationTitle = computed(() => authStore.user ? 'Рекомендуем вам' : 'Подборка от recommendation-service')
+const recommendationTitle = computed(() => authStore.user ? 'Рекомендуем вам' : 'Что может понравиться уже сейчас')
 const recommendationSubtitle = computed(() => authStore.user
-  ? 'Блок строится по живым событиям и сигналам бронирования, поэтому рекомендации становятся точнее по мере использования сервиса.'
-  : 'Для гостя здесь работает cold-start сценарий, чтобы каталог уже сейчас показывал умную подборку событий.')
+  ? 'Лента постепенно подстраивается под твои просмотры, бронирования и интересы, поэтому с каждым визитом подборка становится точнее.'
+  : 'Даже без авторизации витрина собирает сильные стартовые варианты, чтобы можно было быстро выбрать событие и перейти к покупке билета.')
+const assistantContextLabel = computed(() => {
+  if (!assistantResponse.value) {
+    return ''
+  }
+
+  const labels = [
+    assistantResponse.value.personalized ? 'персональный контекст' : 'гостевой сценарий',
+    assistantResponse.value.context.intent_label,
+    assistantResponse.value.context.timeframe_label,
+  ].filter((label): label is string => Boolean(label))
+
+  return labels.join(' · ')
+})
+const assistantAnswerHtml = computed(() => renderMarkdown(assistantResponse.value?.answer ?? ''))
 
 const getQueryValue = (value?: LocationQueryValue | LocationQueryValue[] | null) => {
   if (Array.isArray(value)) {
@@ -254,9 +281,34 @@ const loadRecommendations = async () => {
   } catch (requestError) {
     console.error(requestError)
     recommendations.value = []
-    recommendationsError.value = 'Recommendation-service временно недоступен.'
+    recommendationsError.value = 'Персональная подборка временно недоступна.'
   } finally {
     recommendationsLoading.value = false
+  }
+}
+
+const askAssistant = async (prefilledQuery?: string) => {
+  const nextQuery = (prefilledQuery ?? assistantQuery.value).trim()
+
+  assistantQuery.value = nextQuery
+  assistantError.value = ''
+
+  if (!nextQuery) {
+    assistantResponse.value = null
+    assistantError.value = 'Сначала напиши, что именно ты хочешь найти.'
+    return
+  }
+
+  assistantLoading.value = true
+
+  try {
+    assistantResponse.value = await getEventAssistantRequest(nextQuery, 4)
+  } catch (requestError) {
+    console.error(requestError)
+    assistantResponse.value = null
+    assistantError.value = 'Митя временно недоступен. Ниже все равно можно выбрать событие через обычную подборку.'
+  } finally {
+    assistantLoading.value = false
   }
 }
 
@@ -348,13 +400,48 @@ onMounted(async () => {
               Смотреть афишу
             </a>
 
-            <RouterLink to="/register" class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white">
-              Создать аккаунт
-            </RouterLink>
+            <template v-if="authStore.isAuthenticated">
+              <RouterLink
+                v-if="authStore.isAdmin"
+                to="/admin/dashboard"
+                class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white"
+              >
+                Панель администратора
+              </RouterLink>
 
-            <RouterLink to="/register/organizer" class="secondary-button border-white/20 bg-transparent text-white hover:border-white/35 hover:bg-white/10 hover:text-white">
-              Стать организатором
-            </RouterLink>
+              <RouterLink
+                v-else-if="authStore.isOrganizer"
+                to="/organizer/dashboard"
+                class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white"
+              >
+                Панель организатора
+              </RouterLink>
+
+              <RouterLink
+                v-else
+                to="/profile"
+                class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white"
+              >
+                Мой профиль
+              </RouterLink>
+
+              <RouterLink
+                to="/assistant"
+                class="secondary-button border-white/20 bg-transparent text-white hover:border-white/35 hover:bg-white/10 hover:text-white"
+              >
+                Спросить Митю
+              </RouterLink>
+            </template>
+
+            <template v-else>
+              <RouterLink to="/register" class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white">
+                Создать аккаунт
+              </RouterLink>
+
+              <RouterLink to="/register/organizer" class="secondary-button border-white/20 bg-transparent text-white hover:border-white/35 hover:bg-white/10 hover:text-white">
+                Стать организатором
+              </RouterLink>
+            </template>
           </div>
 
           <div class="mt-8 flex flex-wrap gap-2">
@@ -437,10 +524,178 @@ onMounted(async () => {
       </div>
     </section>
 
+    <section class="app-panel overflow-hidden p-5 sm:p-6 lg:p-7">
+      <div class="grid gap-6 xl:grid-cols-[1.05fr_0.95fr] xl:items-start">
+        <div>
+          <span class="info-chip">Митя</span>
+          <h2 class="mt-4 text-3xl font-semibold leading-tight text-slate-950 sm:text-[2.2rem]">
+            Спроси по-человечески, и витрина сама соберет готовую подборку.
+          </h2>
+          <p class="mt-3 max-w-2xl text-sm leading-7 text-slate-500 sm:text-base">
+            Митя берет живые события, усиливает их умной подборкой и сверху добавляет короткий ответ, чтобы не приходилось вручную перебирать весь каталог.
+          </p>
+
+          <form class="mt-6 space-y-4" @submit.prevent="askAssistant()">
+            <label class="field-label" for="assistant-query">Что спросить у Мити</label>
+            <div class="flex flex-col gap-3 lg:flex-row">
+              <input
+                id="assistant-query"
+                v-model="assistantQuery"
+                type="text"
+                class="field-input flex-1"
+                placeholder="Например: Куда сходить сегодня вечером?"
+              />
+              <button type="submit" class="primary-button min-w-[12rem]" :disabled="assistantLoading">
+                {{ assistantLoading ? 'Подбираем...' : 'Подобрать события' }}
+              </button>
+            </div>
+          </form>
+
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button
+              v-for="suggestion in assistantSuggestions"
+              :key="suggestion"
+              type="button"
+              class="catalog-chip"
+              @click="askAssistant(suggestion)"
+            >
+              {{ suggestion }}
+            </button>
+
+            <RouterLink to="/assistant" class="secondary-button">
+              Открыть чат с Митей
+            </RouterLink>
+          </div>
+
+          <div v-if="assistantError" class="message-error mt-5">
+            {{ assistantError }}
+          </div>
+        </div>
+
+        <div class="rounded-[2rem] border border-slate-200/80 bg-slate-50/75 p-5 shadow-[0_24px_70px_-55px_rgba(15,23,42,0.25)]">
+          <p class="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
+            Как это работает
+          </p>
+          <div class="mt-4 space-y-4 text-sm leading-7 text-slate-500">
+            <p>Сначала сервис берет живые карточки событий и поведенческие сигналы витрины.</p>
+            <p>Потом Митя объясняет, почему именно эти события подходят под твой сценарий.</p>
+            <p>В ответе сразу появляются готовые карточки, так что можно без лишнего поиска перейти к покупке билета.</p>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="assistantLoading" class="mt-7 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+        <article
+          v-for="item in 4"
+          :key="`assistant-skeleton-${item}`"
+          class="overflow-hidden rounded-[1.8rem] border border-slate-200/80 bg-white shadow-[0_24px_70px_-55px_rgba(15,23,42,0.35)]"
+        >
+          <div class="h-44 animate-pulse bg-slate-200"></div>
+          <div class="space-y-3 p-5">
+            <div class="h-4 w-28 animate-pulse rounded-full bg-slate-100"></div>
+            <div class="h-7 w-3/4 animate-pulse rounded-full bg-slate-200"></div>
+            <div class="h-4 w-full animate-pulse rounded-full bg-slate-100"></div>
+            <div class="h-4 w-2/3 animate-pulse rounded-full bg-slate-100"></div>
+          </div>
+        </article>
+      </div>
+
+      <div v-else-if="assistantResponse" class="mt-7 space-y-6">
+        <div class="rounded-[2rem] border border-blue-100 bg-[linear-gradient(145deg,rgba(37,99,235,0.08),rgba(15,23,42,0.02))] p-5 sm:p-6">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="max-w-3xl">
+              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
+                Ответ Мити
+              </p>
+              <div
+                class="markdown-content mt-3 text-base leading-8 text-slate-700 sm:text-lg"
+                v-html="assistantAnswerHtml"
+              ></div>
+            </div>
+
+            <div class="rounded-[1.3rem] border border-white/70 bg-white px-4 py-3 shadow-sm">
+              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Контекст
+              </p>
+              <p class="mt-2 text-sm font-medium text-slate-700">
+                {{ assistantContextLabel || 'живая подборка' }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <RouterLink
+            v-for="item in assistantResponse.items"
+            :key="`assistant-item-${item.id}`"
+            :to="`/events/${item.id}`"
+            class="group overflow-hidden rounded-[1.8rem] border border-slate-200/80 bg-white shadow-[0_24px_70px_-55px_rgba(15,23,42,0.35)] transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-[0_35px_90px_-60px_rgba(37,99,235,0.32)]"
+          >
+            <div class="relative h-44 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900">
+              <img
+                v-if="item.poster_url"
+                :src="item.poster_url"
+                :alt="item.title"
+                class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+              />
+              <div v-else class="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(96,165,250,0.35),transparent_30%),linear-gradient(145deg,rgba(15,23,42,0.92),rgba(30,64,175,0.88))]"></div>
+
+              <div class="absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-4">
+                <span class="rounded-full border border-white/15 bg-slate-950/55 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/90 backdrop-blur">
+                  {{ item.category_name || item.category }}
+                </span>
+                <span class="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                  {{ item.age_rating }}+
+                </span>
+              </div>
+            </div>
+
+            <div class="space-y-4 p-5">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
+                  {{ assistantResponse.mode === 'ai' ? 'Подборка Мити' : 'Резервный сценарий' }}
+                </p>
+                <h3 class="mt-2 text-xl font-semibold leading-tight text-slate-950">
+                  {{ item.title }}
+                </h3>
+              </div>
+
+              <p class="text-sm leading-6 text-slate-600">
+                {{ item.assistant_note }}
+              </p>
+
+              <div class="space-y-2 rounded-[1.4rem] border border-slate-200/80 bg-slate-50/80 px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-sm text-slate-500">Ближайшая дата</span>
+                  <span class="text-sm font-semibold text-slate-950">{{ formatDate(item.event_date) }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-sm text-slate-500">Цена от</span>
+                  <span class="text-sm font-semibold text-blue-700">{{ formatPrice(item.price) }}</span>
+                </div>
+                <p class="text-sm leading-6 text-slate-500">
+                  {{ buildRecommendationLocation(item) }}
+                </p>
+              </div>
+
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-sm text-slate-400">
+                  {{ item.available_tickets ? `Доступно: ${item.available_tickets}` : 'Наличие уточняется' }}
+                </span>
+                <span class="text-sm font-semibold text-blue-700 transition duration-200 group-hover:text-blue-800">
+                  Открыть
+                </span>
+              </div>
+            </div>
+          </RouterLink>
+        </div>
+      </div>
+    </section>
+
     <section class="app-panel p-5 sm:p-6 lg:p-7">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div class="max-w-3xl">
-          <span class="info-chip">AI recommendations</span>
+          <span class="info-chip">Smart picks</span>
           <h2 class="mt-4 text-3xl font-semibold leading-tight text-slate-950 sm:text-[2.2rem]">
             {{ recommendationTitle }}
           </h2>

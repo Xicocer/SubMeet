@@ -32,3 +32,5 @@ services/recommendation-service/**/__pycache__/
 ml_recommended/.venv/
 ml_recommended/venv/
 ml_recommended/**/__pycache__/
+services/recommendation-service/logs/
+**/storage/logs/*structured*.log*

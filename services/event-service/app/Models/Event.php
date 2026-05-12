@@ -14,6 +14,7 @@ class Event extends Model
     use HasFactory;
 
     public const STATUS_DRAFT = 'draft';
+    public const STATUS_PENDING_REVIEW = 'pending_review';
     public const STATUS_PUBLISHED = 'published';
     public const STATUS_CANCELLED = 'cancelled';
     public const STATUS_ARCHIVED = 'archived';
@@ -26,6 +27,8 @@ class Event extends Model
         'age_rating_id',
         'organizer_id',
         'status',
+        'moderation_note',
+        'moderated_at',
     ];
 
     protected function casts(): array
@@ -34,6 +37,7 @@ class Event extends Model
             'category_id' => 'integer',
             'age_rating_id' => 'integer',
             'organizer_id' => 'integer',
+            'moderated_at' => 'datetime',
         ];
     }
 

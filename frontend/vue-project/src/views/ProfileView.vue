@@ -245,7 +245,9 @@ const syncReturnedPayment = async () => {
     replaceBooking(response.booking)
 
     if (response.booking.status === 'confirmed') {
-      cabinetMessage.value = 'Оплата подтверждена. Билет уже доступен для скачивания.'
+      cabinetMessage.value = response.booking.ticket
+        ? 'Оплата подтверждена. Билет уже доступен для скачивания.'
+        : 'Оплата подтверждена. PDF-билет еще генерируется в фоне и скоро появится в кабинете.'
     } else if (response.booking.status === 'payment_pending') {
       cabinetMessage.value = 'Платеж еще обрабатывается. Обнови страницу чуть позже.'
     } else {

@@ -25,6 +25,57 @@ services:
     networks:
       - diploma-network
 
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: diploma-loki
+    restart: unless-stopped
+    profiles:
+      - observability
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/observability/loki/loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks:
+      - diploma-network
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: diploma-promtail
+    restart: unless-stopped
+    profiles:
+      - observability
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./infra/observability/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - ./services:/workspace/services:ro
+      - promtail_positions:/tmp
+    depends_on:
+      - loki
+    networks:
+      - diploma-network
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: diploma-grafana
+    restart: unless-stopped
+    profiles:
+      - observability
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - loki
+    networks:
+      - diploma-network
+
   auth-service:
     build:
       context: ./services/auth-service
@@ -36,6 +87,8 @@ services:
       - ./services/auth-service:/var/www
     environment:
       APP_URL: http://localhost:8000
+      LOG_CHANNEL: stack
+      LOG_STACK: single,json
       DB_CONNECTION: mysql
       DB_HOST: mysql
       DB_PORT: 3306
@@ -60,8 +113,11 @@ services:
       - ./services/event-service:/var/www
     environment:
       APP_URL: http://localhost:8001
+      LOG_CHANNEL: stack
+      LOG_STACK: single,json
       AUTH_SERVICE_URL: http://auth-service:8000/api
       HALLS_SERVICE_URL: http://halls-service:8000/api
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8000/api
       INTERNAL_API_KEY: submeet-internal-key
       DB_CONNECTION: mysql
       DB_HOST: mysql
@@ -90,6 +146,8 @@ services:
       - ./services/halls-service:/var/www
     environment:
       APP_URL: http://localhost:8002
+      LOG_CHANNEL: stack
+      LOG_STACK: single,json
       AUTH_SERVICE_URL: http://auth-service:8000/api
       DB_CONNECTION: mysql
       DB_HOST: mysql
@@ -118,6 +176,8 @@ services:
       - ./services/booking-service:/var/www
     environment:
       APP_URL: http://localhost:8003
+      LOG_CHANNEL: stack
+      LOG_STACK: single,json
       AUTH_SERVICE_URL: http://auth-service:8000/api
       EVENT_SERVICE_URL: http://event-service:8000/api
       HALL_SERVICE_URL: http://halls-service:8000/api
@@ -151,6 +211,8 @@ services:
     environment:
       APP_NAME: SubMeet Recommendation Service
       APP_ENV: local
+      LOG_LEVEL: INFO
+      LOG_SERVICE_NAME: recommendation-service
       DATA_SOURCE: hybrid
       AUTH_SERVICE_URL: http://auth-service:8000/api
       EVENT_SERVICE_URL: http://event-service:8000/api
@@ -162,6 +224,30 @@ services:
     command: sh -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8004:8000"
+    networks:
+      - diploma-network
+
+  admin-service:
+    build:
+      context: ./services/admin-service
+      dockerfile: Dockerfile
+    container_name: admin-service
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./services/admin-service:/var/www
+    environment:
+      APP_URL: http://localhost:8005
+      LOG_CHANNEL: stack
+      LOG_STACK: single,json
+      AUTH_SERVICE_URL: http://auth-service:8000/api
+      EVENT_SERVICE_URL: http://event-service:8000/api
+      BOOKING_SERVICE_URL: http://booking-service:8000/api
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+    ports:
+      - "8005:8000"
     networks:
       - diploma-network
 
@@ -180,6 +266,9 @@ services:
 
 volumes:
   mysql_data:
+  loki_data:
+  grafana_data:
+  promtail_positions:
 
 networks:
   diploma-network:

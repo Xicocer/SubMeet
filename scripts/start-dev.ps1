@@ -13,8 +13,8 @@ function New-ServiceDefinition {
     param(
         [string]$Name,
         [string]$Workdir,
-        [int]$Port,
-        [string]$Url,
+        [int]$Port = 0,
+        [string]$Url = '',
         [string]$Command
     )
 
@@ -41,6 +41,14 @@ $services = @(
         -Url 'http://127.0.0.1:8001' `
         -Command 'php artisan serve --host=127.0.0.1 --port=8001'),
     (New-ServiceDefinition `
+        -Name 'Event Scheduler' `
+        -Workdir (Join-Path $rootDir 'services\event-service') `
+        -Command 'php artisan schedule:work'),
+    (New-ServiceDefinition `
+        -Name 'Event Auth Projection Consumer' `
+        -Workdir (Join-Path $rootDir 'services\event-service') `
+        -Command 'php artisan rabbitmq:consume-auth-users --idle-timeout=0'),
+    (New-ServiceDefinition `
         -Name 'Halls Service' `
         -Workdir (Join-Path $rootDir 'services\halls-service') `
         -Port 8002 `
@@ -53,11 +61,25 @@ $services = @(
         -Url 'http://127.0.0.1:8003' `
         -Command 'php artisan serve --host=127.0.0.1 --port=8003'),
     (New-ServiceDefinition `
+        -Name 'Booking Scheduler' `
+        -Workdir (Join-Path $rootDir 'services\booking-service') `
+        -Command 'php artisan schedule:work'),
+    (New-ServiceDefinition `
+        -Name 'Booking Ticket Worker' `
+        -Workdir (Join-Path $rootDir 'services\booking-service') `
+        -Command 'php artisan rabbitmq:consume-ticket-jobs --idle-timeout=0'),
+    (New-ServiceDefinition `
         -Name 'Recommendation Service' `
         -Workdir (Join-Path $rootDir 'services\recommendation-service') `
         -Port 8004 `
         -Url 'http://127.0.0.1:8004' `
         -Command 'powershell -ExecutionPolicy Bypass -File .\start-local.ps1 -ListenHost 127.0.0.1 -Port 8004'),
+    (New-ServiceDefinition `
+        -Name 'Admin Service' `
+        -Workdir (Join-Path $rootDir 'services\admin-service') `
+        -Port 8005 `
+        -Url 'http://127.0.0.1:8005' `
+        -Command 'php artisan serve --host=127.0.0.1 --port=8005'),
     (New-ServiceDefinition `
         -Name 'Frontend' `
         -Workdir (Join-Path $rootDir 'frontend\vue-project') `
@@ -111,6 +133,10 @@ if (Test-Path $metadataPath) {
 $busyPorts = @()
 
 foreach ($service in $services) {
+    if ($service.Port -le 0) {
+        continue
+    }
+
     $processId = Get-ListeningProcessId -Port $service.Port
 
     if ($null -ne $processId) {
@@ -189,7 +215,11 @@ Write-Host 'Workspace processes have been started in separate PowerShell windows
 Write-Host ''
 
 foreach ($service in $services) {
-    Write-Host (' - {0}: {1}' -f $service.Name, $service.Url) -ForegroundColor Green
+    if ([string]::IsNullOrWhiteSpace($service.Url)) {
+        Write-Host (' - {0}' -f $service.Name) -ForegroundColor Green
+    } else {
+        Write-Host (' - {0}: {1}' -f $service.Name, $service.Url) -ForegroundColor Green
+    }
 }
 
 Write-Host ''

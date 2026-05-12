@@ -43,6 +43,8 @@ export interface EventDetails extends EventSummaryBase {
   description: string | null
   organizer_id: number
   status: OrganizerEventStatus
+  moderation_note?: string | null
+  moderated_at?: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -99,7 +101,7 @@ export interface EventListFilters {
   per_page?: number
 }
 
-export type OrganizerEventStatus = 'draft' | 'published' | 'cancelled' | 'archived'
+export type OrganizerEventStatus = 'draft' | 'pending_review' | 'published' | 'cancelled' | 'archived'
 
 export interface OrganizerEvent extends EventDetails {}
 
@@ -116,7 +118,7 @@ export interface OrganizerEventPayload {
   category_id: number
   age_rating_id: number
   tags: string[]
-  status: Extract<OrganizerEventStatus, 'draft' | 'published'>
+  status: Extract<OrganizerEventStatus, 'draft' | 'pending_review' | 'published'>
 }
 
 export interface ChangeOrganizerEventStatusPayload {

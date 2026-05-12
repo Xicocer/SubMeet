@@ -77,6 +77,7 @@ class AuthController extends Controller
         OrganizerProfile::query()->create([
             'user_id' => $user->id,
             'company_name' => $validated['company_name'],
+            'moderation_status' => 'pending',
         ]);
 
         return $this->buildAuthenticatedResponse(

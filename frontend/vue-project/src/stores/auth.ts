@@ -34,6 +34,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => Boolean(token.value))
   const roleName = computed(() => user.value?.role?.role ?? 'user')
   const isOrganizer = computed(() => roleName.value === 'organizer')
+  const isAdmin = computed(() => roleName.value === 'admin')
 
   const setToken = (value: string | null) => {
     token.value = value
@@ -155,6 +156,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     isOrganizer,
+    isAdmin,
     roleName,
     register,
     registerOrganizer,

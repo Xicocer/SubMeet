@@ -4,6 +4,12 @@
   "scripts": {
     "dev": "powershell -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1",
     "dev:stop": "powershell -ExecutionPolicy Bypass -File ./scripts/stop-dev.ps1",
-    "dev:check": "powershell -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1 -DryRun"
+    "dev:check": "powershell -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1 -DryRun",
+    "demo:seed": "powershell -ExecutionPolicy Bypass -File ./scripts/seed-demo.ps1",
+    "observability:up": "docker compose --profile observability up -d loki promtail grafana",
+    "observability:down": "docker compose --profile observability down",
+    "observability:local:up": "powershell -ExecutionPolicy Bypass -File ./scripts/start-observability-local.ps1",
+    "observability:local:down": "powershell -ExecutionPolicy Bypass -File ./scripts/stop-observability-local.ps1",
+    "observability:local:check": "powershell -ExecutionPolicy Bypass -File ./scripts/start-observability-local.ps1 -DryRun"
   }
 }

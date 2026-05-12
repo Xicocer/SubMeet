@@ -12,7 +12,17 @@ class OrganizerProfile extends Model
     protected $fillable = [
         'user_id',
         'company_name',
+        'moderation_status',
+        'moderation_note',
+        'moderated_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'moderated_at' => 'datetime',
+        ];
+    }
 
     public function user()
     {

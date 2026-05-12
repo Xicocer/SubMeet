@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     allow_synthetic_generation: bool = True
     default_limit: int = 10
     max_limit: int = 50
+    log_level: str = "INFO"
+    log_retention_days: int = 14
+    log_service_name: str = "recommendation-service"
+    log_relative_dir: str = "logs"
+    log_file_name: str = "structured.json.log"
 
     model_config = SettingsConfigDict(
         env_file=SERVICE_DIR / ".env",
@@ -68,6 +73,14 @@ class Settings(BaseSettings):
     @property
     def training_metrics_path(self) -> Path:
         return self.ml_workspace / self.training_metrics_relative_path
+
+    @property
+    def log_dir(self) -> Path:
+        return SERVICE_DIR / self.log_relative_dir
+
+    @property
+    def log_path(self) -> Path:
+        return self.log_dir / self.log_file_name
 
     @property
     def use_live_data(self) -> bool:

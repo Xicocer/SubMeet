@@ -27,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const authStore = useAuthStore()
+const CHECKOUT_CONTEXT_KEY = 'submeet_checkout_context'
 
 const availability = ref<SessionAvailabilityResponse | null>(null)
 const loading = ref(false)
@@ -230,6 +231,19 @@ const redirectToCheckout = (booking: UserBooking) => {
   if (!confirmationUrl) {
     bookingError.value = 'Платежная ссылка пока не готова. Попробуйте еще раз чуть позже.'
     return
+  }
+
+  try {
+    sessionStorage.setItem(
+      CHECKOUT_CONTEXT_KEY,
+      JSON.stringify({
+        bookingId: booking.id,
+        userId: booking.user_id,
+        createdAt: new Date().toISOString(),
+      }),
+    )
+  } catch (storageError) {
+    console.warn('Unable to persist checkout context.', storageError)
   }
 
   window.location.href = confirmationUrl

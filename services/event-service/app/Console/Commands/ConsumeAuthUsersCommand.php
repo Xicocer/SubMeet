@@ -26,9 +26,10 @@ class ConsumeAuthUsersCommand extends Command
         $channel = $connection->channel();
         $consumerTag = 'event-service-auth-users-consumer';
         $processed = 0;
+        $shouldStop = false;
         $maxMessages = (int) $this->option('max-messages');
         $stopAfterOne = (bool) $this->option('once');
-        $idleTimeout = (int) $this->option('idle-timeout');
+        $idleTimeout = max(0, (int) $this->option('idle-timeout'));
 
         try {
             $channel->exchange_declare(
@@ -65,43 +66,93 @@ class ConsumeAuthUsersCommand extends Command
                     $channel,
                     $consumerTag,
                     &$processed,
+                    &$shouldStop,
                     $maxMessages,
                     $stopAfterOne
                 ) {
+                    $deliveryTag = $message->delivery_info['delivery_tag'];
+
                     try {
                         $payload = json_decode($message->getBody(), true, 512, JSON_THROW_ON_ERROR);
                         $authUser = $projector->handle($payload);
-                        $channel->basic_ack($message->delivery_info['delivery_tag']);
                         $processed++;
 
                         $this->line("Projected auth user {$authUser->auth_user_id}.");
+
+                        try {
+                            $channel->basic_ack($deliveryTag);
+                        } catch (Throwable $transportException) {
+                            report($transportException);
+                            $shouldStop = true;
+                            $this->warn('RabbitMQ connection dropped after projection processing. Stopping consumer gracefully.');
+
+                            try {
+                                $channel->basic_cancel($consumerTag);
+                            } catch (Throwable) {
+                            }
+
+                            return;
+                        }
                     } catch (Throwable $exception) {
-                        $channel->basic_reject($message->delivery_info['delivery_tag'], false);
+                        report($exception);
                         $this->error('Failed to process RabbitMQ message: ' . $exception->getMessage());
+
+                        try {
+                            $channel->basic_reject($deliveryTag, false);
+                        } catch (Throwable $transportException) {
+                            report($transportException);
+                            $shouldStop = true;
+                            $this->warn('RabbitMQ connection dropped while rejecting a failed projection message. Stopping consumer gracefully.');
+
+                            try {
+                                $channel->basic_cancel($consumerTag);
+                            } catch (Throwable) {
+                            }
+                        }
                     }
 
                     if (
                         $stopAfterOne ||
                         ($maxMessages > 0 && $processed >= $maxMessages)
                     ) {
-                        $channel->basic_cancel($consumerTag);
+                        try {
+                            $channel->basic_cancel($consumerTag);
+                        } catch (Throwable $transportException) {
+                            report($transportException);
+                            $shouldStop = true;
+                        }
                     }
                 }
             );
 
             $this->info("Waiting for auth user events on queue [{$queueName}]...");
 
-            while (count($channel->callbacks) > 0) {
+            while (count($channel->callbacks) > 0 && ! $shouldStop) {
                 try {
-                    $channel->wait(null, false, $idleTimeout);
+                    if ($idleTimeout > 0) {
+                        $channel->wait(null, false, $idleTimeout);
+                    } else {
+                        $channel->wait();
+                    }
                 } catch (AMQPTimeoutException) {
                     $this->warn("No new RabbitMQ messages received in {$idleTimeout} seconds.");
+                    break;
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $this->warn('RabbitMQ consumer stopped because the connection was interrupted.');
                     break;
                 }
             }
         } finally {
-            $channel->close();
-            $connection->close();
+            try {
+                $channel->close();
+            } catch (Throwable) {
+            }
+
+            try {
+                $connection->close();
+            } catch (Throwable) {
+            }
         }
 
         $this->info("Processed {$processed} auth user event(s).");

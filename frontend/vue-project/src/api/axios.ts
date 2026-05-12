@@ -43,3 +43,7 @@ export const bookingApi = createApiClient(
 export const recommendationApi = createApiClient(
   import.meta.env.VITE_RECOMMENDATION_API_URL ?? 'http://127.0.0.1:8004/api'
 )
+
+export const adminApi = createApiClient(
+  import.meta.env.VITE_ADMIN_API_URL ?? 'http://127.0.0.1:8005/api'
+)

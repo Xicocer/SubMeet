@@ -1,7 +1,15 @@
 <?php
 
 use App\Http\Controllers\Api\AgeRatingController;
+use App\Http\Controllers\Api\AdminAgeRatingController;
+use App\Http\Controllers\Api\AdminCategoryController;
+use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AdminEventModerationController;
+use App\Http\Controllers\Api\AdminTagController;
 use App\Http\Controllers\Api\CategoryController;
+use App\Http\Controllers\Api\EventAssistantChatController;
+use App\Http\Controllers\Api\EventAssistantConversationController;
+use App\Http\Controllers\Api\EventAssistantController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\InternalRecommendationController;
 use App\Http\Controllers\Api\OrganizerDashboardController;
@@ -15,6 +23,10 @@ use Illuminate\Support\Facades\Route;
 Route::get('/categories', [CategoryController::class, 'index']);
 Route::get('/age-ratings', [AgeRatingController::class, 'index']);
 Route::get('/events', [EventController::class, 'index']);
+Route::prefix('/events/assistant')->group(function () {
+    Route::post('/', EventAssistantController::class);
+    Route::post('/chat/stream', EventAssistantChatController::class);
+});
 Route::get('/events/{id}', [EventController::class, 'show']);
 Route::get('/events/{id}/sessions', [EventController::class, 'sessions']);
 Route::get('/sessions/{id}', [SessionController::class, 'show']);
@@ -28,6 +40,8 @@ Route::middleware('api.auth')->group(function () {
     Route::get('/me/want-to-go', [WantToGoController::class, 'index']);
     Route::post('/events/{id}/want-to-go', [WantToGoController::class, 'store']);
     Route::delete('/events/{id}/want-to-go', [WantToGoController::class, 'destroy']);
+    Route::get('/events/assistant/conversations', [EventAssistantConversationController::class, 'index']);
+    Route::get('/events/assistant/conversations/{conversationId}', [EventAssistantConversationController::class, 'show']);
 });
 
 Route::middleware('organizer.auth')->prefix('organizer')->group(function () {
@@ -41,4 +55,25 @@ Route::middleware('organizer.auth')->prefix('organizer')->group(function () {
     Route::post('/events/{id}/sessions', [OrganizerSessionController::class, 'store']);
     Route::put('/sessions/{id}', [OrganizerSessionController::class, 'update']);
     Route::delete('/sessions/{id}', [OrganizerSessionController::class, 'destroy']);
+});
+
+Route::middleware('admin.auth')->prefix('admin')->group(function () {
+    Route::get('/dashboard', AdminDashboardController::class);
+    Route::get('/events', [AdminEventModerationController::class, 'index']);
+    Route::patch('/events/{id}/moderation', [AdminEventModerationController::class, 'update']);
+
+    Route::get('/categories', [AdminCategoryController::class, 'index']);
+    Route::post('/categories', [AdminCategoryController::class, 'store']);
+    Route::put('/categories/{id}', [AdminCategoryController::class, 'update']);
+    Route::delete('/categories/{id}', [AdminCategoryController::class, 'destroy']);
+
+    Route::get('/age-ratings', [AdminAgeRatingController::class, 'index']);
+    Route::post('/age-ratings', [AdminAgeRatingController::class, 'store']);
+    Route::put('/age-ratings/{id}', [AdminAgeRatingController::class, 'update']);
+    Route::delete('/age-ratings/{id}', [AdminAgeRatingController::class, 'destroy']);
+
+    Route::get('/tags', [AdminTagController::class, 'index']);
+    Route::post('/tags', [AdminTagController::class, 'store']);
+    Route::put('/tags/{id}', [AdminTagController::class, 'update']);
+    Route::delete('/tags/{id}', [AdminTagController::class, 'destroy']);
 });

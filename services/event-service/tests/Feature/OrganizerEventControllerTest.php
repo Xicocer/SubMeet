@@ -35,7 +35,7 @@ class OrganizerEventControllerTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('event.title', 'Летний фестиваль')
             ->assertJsonPath('event.organizer_id', 77)
-            ->assertJsonPath('event.status', Event::STATUS_PUBLISHED)
+            ->assertJsonPath('event.status', Event::STATUS_PENDING_REVIEW)
             ->assertJsonPath('event.tags.0.name', 'лето');
 
         $this->assertDatabaseHas('events', [
@@ -71,7 +71,7 @@ class OrganizerEventControllerTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('event.title', 'Новое название')
-            ->assertJsonPath('event.status', Event::STATUS_PUBLISHED)
+            ->assertJsonPath('event.status', Event::STATUS_PENDING_REVIEW)
             ->assertJsonPath('event.tags.0.slug', 'obnovlenie');
 
         $this->assertDatabaseHas('events', [

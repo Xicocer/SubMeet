@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             AuthUserProjectionSeeder::class,
             EventSeeder::class,
             EventSessionSeeder::class,
+            EventFavoriteSeeder::class,
         ]);
     }
 }

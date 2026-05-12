@@ -12,94 +12,108 @@ class EventSessionSeeder extends Seeder
 {
     public function run(): void
     {
-        $sessionsByEvent = [
-            'Ночной рок-концерт на крыше' => [
-                [
-                    'hall_id' => 101,
-                    'start_time' => CarbonImmutable::parse('2026-05-02 19:00:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-02 21:30:00'),
-                    'base_price' => 2800,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
-                [
-                    'hall_id' => 101,
-                    'start_time' => CarbonImmutable::parse('2026-05-03 20:00:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-03 22:30:00'),
-                    'base_price' => 3200,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
+        $now = CarbonImmutable::now();
+
+        $sessions = [
+            [
+                'id' => 4101,
+                'event_id' => 3101,
+                'hall_id' => 2101,
+                'start_time' => $now->addDays(2)->setTime(20, 0),
+                'end_time' => $now->addDays(2)->setTime(22, 30),
+                'base_price' => 2800,
+                'status' => EventSession::STATUS_SCHEDULED,
             ],
-            'Большой весенний стендап' => [
-                [
-                    'hall_id' => 202,
-                    'start_time' => CarbonImmutable::parse('2026-05-06 18:30:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-06 20:00:00'),
-                    'base_price' => 1800,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
-                [
-                    'hall_id' => 202,
-                    'start_time' => CarbonImmutable::parse('2026-05-07 21:00:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-07 22:30:00'),
-                    'base_price' => 2200,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
+            [
+                'id' => 4102,
+                'event_id' => 3101,
+                'hall_id' => 2101,
+                'start_time' => $now->subDays(7)->setTime(20, 0),
+                'end_time' => $now->subDays(7)->setTime(22, 30),
+                'base_price' => 2500,
+                'status' => EventSession::STATUS_COMPLETED,
             ],
-            'Иммерсивный спектакль "Тишина сцены"' => [
-                [
-                    'hall_id' => 303,
-                    'start_time' => CarbonImmutable::parse('2026-05-08 19:00:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-08 21:00:00'),
-                    'base_price' => 2400,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
-                [
-                    'hall_id' => 303,
-                    'start_time' => CarbonImmutable::parse('2026-05-10 19:30:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-10 21:30:00'),
-                    'base_price' => 2600,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
+            [
+                'id' => 4201,
+                'event_id' => 3102,
+                'hall_id' => 2102,
+                'start_time' => $now->addDay()->setTime(19, 0),
+                'end_time' => $now->addDay()->setTime(20, 40),
+                'base_price' => 1800,
+                'status' => EventSession::STATUS_SCHEDULED,
             ],
-            'Городская выставка цифрового искусства' => [
-                [
-                    'hall_id' => 404,
-                    'start_time' => CarbonImmutable::parse('2026-05-01 12:00:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-01 18:00:00'),
-                    'base_price' => 900,
-                    'status' => EventSession::STATUS_SCHEDULED,
-                ],
-                [
-                    'hall_id' => 404,
-                    'start_time' => CarbonImmutable::parse('2026-05-09 11:00:00'),
-                    'end_time' => CarbonImmutable::parse('2026-05-09 17:00:00'),
-                    'base_price' => 1100,
-                    'status' => EventSession::STATUS_CANCELLED,
-                ],
+            [
+                'id' => 4202,
+                'event_id' => 3102,
+                'hall_id' => 2102,
+                'start_time' => $now->addDays(9)->setTime(21, 0),
+                'end_time' => $now->addDays(9)->setTime(22, 40),
+                'base_price' => 2100,
+                'status' => EventSession::STATUS_SCHEDULED,
+            ],
+            [
+                'id' => 4301,
+                'event_id' => 3103,
+                'hall_id' => 2103,
+                'start_time' => $now->addDays(4)->setTime(18, 30),
+                'end_time' => $now->addDays(4)->setTime(20, 30),
+                'base_price' => 2400,
+                'status' => EventSession::STATUS_SCHEDULED,
+            ],
+            [
+                'id' => 4401,
+                'event_id' => 3104,
+                'hall_id' => 2104,
+                'start_time' => $now->addDays(3)->setTime(12, 0),
+                'end_time' => $now->addDays(3)->setTime(18, 0),
+                'base_price' => 900,
+                'status' => EventSession::STATUS_SCHEDULED,
+            ],
+            [
+                'id' => 4501,
+                'event_id' => 3105,
+                'hall_id' => 2102,
+                'start_time' => $now->addDays(6)->setTime(20, 30),
+                'end_time' => $now->addDays(6)->setTime(22, 0),
+                'base_price' => 2600,
+                'status' => EventSession::STATUS_SCHEDULED,
+            ],
+            [
+                'id' => 4601,
+                'event_id' => 3106,
+                'hall_id' => 2101,
+                'start_time' => $now->addDays(8)->setTime(19, 30),
+                'end_time' => $now->addDays(8)->setTime(21, 30),
+                'base_price' => 2300,
+                'status' => EventSession::STATUS_SCHEDULED,
+            ],
+            [
+                'id' => 4701,
+                'event_id' => 3107,
+                'hall_id' => 2101,
+                'start_time' => $now->addDays(11)->setTime(18, 0),
+                'end_time' => $now->addDays(11)->setTime(23, 0),
+                'base_price' => 3500,
+                'status' => EventSession::STATUS_CANCELLED,
             ],
         ];
 
-        foreach ($sessionsByEvent as $eventTitle => $sessions) {
-            $event = Event::query()->where('title', $eventTitle)->first();
-
-            if (!$event) {
-                throw new InvalidArgumentException("Event [{$eventTitle}] for session seeding was not found.");
+        foreach ($sessions as $sessionData) {
+            if (!Event::query()->whereKey($sessionData['event_id'])->exists()) {
+                throw new InvalidArgumentException("Demo event [{$sessionData['event_id']}] was not found for session seeding.");
             }
 
-            foreach ($sessions as $session) {
-                EventSession::query()->updateOrCreate(
-                    [
-                        'event_id' => $event->id,
-                        'hall_id' => $session['hall_id'],
-                        'start_time' => $session['start_time'],
-                    ],
-                    [
-                        'end_time' => $session['end_time'],
-                        'base_price' => $session['base_price'],
-                        'status' => $session['status'],
-                    ]
-                );
-            }
+            EventSession::query()->updateOrCreate(
+                ['id' => $sessionData['id']],
+                [
+                    'event_id' => $sessionData['event_id'],
+                    'hall_id' => $sessionData['hall_id'],
+                    'start_time' => $sessionData['start_time'],
+                    'end_time' => $sessionData['end_time'],
+                    'base_price' => $sessionData['base_price'],
+                    'status' => $sessionData['status'],
+                ]
+            );
         }
     }
 }

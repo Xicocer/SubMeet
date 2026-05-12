@@ -52,10 +52,12 @@ class AuthControllerTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('user.role.role', 'organizer')
-            ->assertJsonPath('user.organizer_profile.company_name', 'Milo Concert Hall');
+            ->assertJsonPath('user.organizer_profile.company_name', 'Milo Concert Hall')
+            ->assertJsonPath('user.organizer_profile.moderation_status', 'pending');
 
         $this->assertDatabaseHas('organizer_profiles', [
             'company_name' => 'Milo Concert Hall',
+            'moderation_status' => 'pending',
         ]);
     }
 

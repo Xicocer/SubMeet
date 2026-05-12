@@ -29,7 +29,7 @@ class OrganizerEventController extends Controller
 
         $validated = $request->validate([
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
-            'status' => ['nullable', 'in:draft,published,cancelled,archived'],
+            'status' => ['nullable', 'in:draft,pending_review,published,cancelled,archived'],
         ]);
 
         $events = Event::query()
@@ -62,7 +62,7 @@ class OrganizerEventController extends Controller
             'poster_url' => ['nullable', 'url', 'max:2048'],
             'category_id' => ['required', 'integer', 'exists:categories,id'],
             'age_rating_id' => ['required', 'integer', 'exists:age_ratings,id'],
-            'status' => ['nullable', 'in:draft,published'],
+            'status' => ['nullable', 'in:draft,pending_review,published'],
             'tags' => ['nullable', 'array', 'max:12'],
             'tags.*' => ['string', 'min:2', 'max:40', 'distinct'],
         ]);
@@ -75,7 +75,7 @@ class OrganizerEventController extends Controller
                 'category_id' => $validated['category_id'],
                 'age_rating_id' => $validated['age_rating_id'],
                 'organizer_id' => $organizer['id'],
-                'status' => $validated['status'] ?? Event::STATUS_DRAFT,
+                'status' => $this->resolveOrganizerRequestedStatus($validated['status'] ?? null),
             ]);
 
             $this->syncTags($event, $validated['tags'] ?? []);
@@ -107,7 +107,7 @@ class OrganizerEventController extends Controller
             'poster_url' => ['nullable', 'url', 'max:2048'],
             'category_id' => ['required', 'integer', 'exists:categories,id'],
             'age_rating_id' => ['required', 'integer', 'exists:age_ratings,id'],
-            'status' => ['nullable', 'in:draft,published'],
+            'status' => ['nullable', 'in:draft,pending_review,published'],
             'tags' => ['nullable', 'array', 'max:12'],
             'tags.*' => ['string', 'min:2', 'max:40', 'distinct'],
         ]);
@@ -128,7 +128,9 @@ class OrganizerEventController extends Controller
                 'poster_url' => $validated['poster_url'] ?? null,
                 'category_id' => $validated['category_id'],
                 'age_rating_id' => $validated['age_rating_id'],
-                'status' => $validated['status'] ?? $event->status,
+                'status' => array_key_exists('status', $validated)
+                    ? $this->resolveOrganizerRequestedStatus($validated['status'])
+                    : $event->status,
             ]);
 
             $this->syncTags($event, $validated['tags'] ?? []);
@@ -310,9 +312,20 @@ class OrganizerEventController extends Controller
                 'email' => $event->organizer?->email,
             ],
             'status' => $event->status,
+            'moderation_note' => $event->moderation_note,
+            'moderated_at' => $event->moderated_at?->toISOString(),
             'created_at' => $event->created_at?->toISOString(),
             'updated_at' => $event->updated_at?->toISOString(),
         ];
+    }
+
+    private function resolveOrganizerRequestedStatus(?string $status): string
+    {
+        return match ($status) {
+            Event::STATUS_PUBLISHED,
+            Event::STATUS_PENDING_REVIEW => Event::STATUS_PENDING_REVIEW,
+            default => Event::STATUS_DRAFT,
+        };
     }
 
     /**
