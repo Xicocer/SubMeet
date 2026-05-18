@@ -79,9 +79,13 @@ const handlePhoneInput = (event: Event) => {
             После регистрации пользователь автоматически авторизуется и попадет в личный кабинет.
           </p>
           <p class="mt-3 text-sm leading-6 text-slate-500">
-            Если ты представляешь площадку, клуб или компанию, используй
+            Если ты проводишь мероприятия, используй
             <RouterLink class="font-semibold text-sky-700 hover:text-sky-800" to="/register/organizer">
               регистрацию организатора
+            </RouterLink>.
+            Если у тебя своя площадка и ты сдаешь залы в аренду, подойдет
+            <RouterLink class="font-semibold text-sky-700 hover:text-sky-800" to="/register/venue">
+              регистрация площадки
             </RouterLink>.
           </p>
         </div>

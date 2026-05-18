@@ -18,6 +18,15 @@ export interface OrganizerRegisterPayload {
   password_confirmation: string
 }
 
+export interface VenueOwnerRegisterPayload {
+  company_name: string
+  full_name: string
+  email: string
+  phone: string
+  password: string
+  password_confirmation: string
+}
+
 export interface LoginPayload {
   email: string
   password: string

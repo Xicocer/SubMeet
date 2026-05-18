@@ -11,7 +11,7 @@ const authStore = useAuthStore()
 const isImmersiveRoute = computed(() => route.meta.immersive === true)
 
 const isCatalogLinkActive = computed(() => route.path === '/events' || route.path.startsWith('/events/'))
-const isConciergeLinkActive = computed(() => route.path.startsWith('/assistant'))
+const isAssistantLinkActive = computed(() => route.path.startsWith('/assistant'))
 const isProfileLinkActive = computed(() => route.path.startsWith('/profile'))
 const isAdminDashboardLinkActive = computed(() => route.path.startsWith('/admin/dashboard'))
 const isAdminOrganizersLinkActive = computed(() => route.path.startsWith('/admin/organizers'))
@@ -20,10 +20,10 @@ const isAdminIncidentsLinkActive = computed(() => route.path.startsWith('/admin/
 const isAdminDictionariesLinkActive = computed(() => route.path.startsWith('/admin/dictionaries'))
 const isOrganizerDashboardLinkActive = computed(() => route.path.startsWith('/organizer/dashboard'))
 const isOrganizerEventsLinkActive = computed(() => route.path.startsWith('/organizer/events'))
-const isOrganizerHallsLinkActive = computed(() => route.path.startsWith('/organizer/halls'))
 const isOrganizerTicketsLinkActive = computed(() => route.path.startsWith('/organizer/tickets'))
+const isVenueHallsLinkActive = computed(() => route.path.startsWith('/venue/halls'))
 const isLoginLinkActive = computed(() => route.path.startsWith('/login'))
-const isRegisterLinkActive = computed(() => route.path.startsWith('/register'))
+const isRegisterLinkActive = computed(() => route.path === '/register')
 
 const userLabel = computed(() => {
   if (!authStore.user) {
@@ -76,19 +76,11 @@ onMounted(async () => {
               </RouterLink>
 
               <div class="hidden items-center gap-2 lg:flex">
-                <RouterLink
-                  to="/events"
-                  class="store-link"
-                  :class="isCatalogLinkActive ? 'store-link-active' : ''"
-                >
+                <RouterLink to="/events" class="store-link" :class="isCatalogLinkActive ? 'store-link-active' : ''">
                   Каталог
                 </RouterLink>
 
-                <RouterLink
-                  to="/assistant"
-                  class="store-link"
-                  :class="isConciergeLinkActive ? 'store-link-active' : ''"
-                >
+                <RouterLink v-if="authStore.isAuthenticated" to="/assistant" class="store-link" :class="isAssistantLinkActive ? 'store-link-active' : ''">
                   Митя
                 </RouterLink>
 
@@ -101,95 +93,47 @@ onMounted(async () => {
                   Профиль
                 </RouterLink>
 
-                <RouterLink
-                  v-if="authStore.isAdmin"
-                  to="/admin/dashboard"
-                  class="store-link"
-                  :class="isAdminDashboardLinkActive ? 'store-link-active' : ''"
-                >
-                  Admin
-                </RouterLink>
+                <template v-if="authStore.isAdmin">
+                  <RouterLink to="/admin/dashboard" class="store-link" :class="isAdminDashboardLinkActive ? 'store-link-active' : ''">
+                    Admin
+                  </RouterLink>
+                  <RouterLink to="/admin/organizers" class="store-link" :class="isAdminOrganizersLinkActive ? 'store-link-active' : ''">
+                    Компании
+                  </RouterLink>
+                  <RouterLink to="/admin/events" class="store-link" :class="isAdminEventsLinkActive ? 'store-link-active' : ''">
+                    События
+                  </RouterLink>
+                  <RouterLink to="/admin/incidents" class="store-link" :class="isAdminIncidentsLinkActive ? 'store-link-active' : ''">
+                    Инциденты
+                  </RouterLink>
+                  <RouterLink to="/admin/dictionaries" class="store-link" :class="isAdminDictionariesLinkActive ? 'store-link-active' : ''">
+                    Справочники
+                  </RouterLink>
+                </template>
 
-                <RouterLink
-                  v-if="authStore.isAdmin"
-                  to="/admin/organizers"
-                  class="store-link"
-                  :class="isAdminOrganizersLinkActive ? 'store-link-active' : ''"
-                >
-                  Организаторы
-                </RouterLink>
+                <template v-if="authStore.isOrganizer">
+                  <RouterLink to="/organizer/dashboard" class="store-link" :class="isOrganizerDashboardLinkActive ? 'store-link-active' : ''">
+                    Dashboard
+                  </RouterLink>
+                  <RouterLink to="/organizer/events" class="store-link" :class="isOrganizerEventsLinkActive ? 'store-link-active' : ''">
+                    События
+                  </RouterLink>
+                  <RouterLink to="/organizer/tickets" class="store-link" :class="isOrganizerTicketsLinkActive ? 'store-link-active' : ''">
+                    Билеты
+                  </RouterLink>
+                </template>
 
-                <RouterLink
-                  v-if="authStore.isAdmin"
-                  to="/admin/events"
-                  class="store-link"
-                  :class="isAdminEventsLinkActive ? 'store-link-active' : ''"
-                >
-                  Модерация
-                </RouterLink>
-
-                <RouterLink
-                  v-if="authStore.isAdmin"
-                  to="/admin/incidents"
-                  class="store-link"
-                  :class="isAdminIncidentsLinkActive ? 'store-link-active' : ''"
-                >
-                  Инциденты
-                </RouterLink>
-
-                <RouterLink
-                  v-if="authStore.isAdmin"
-                  to="/admin/dictionaries"
-                  class="store-link"
-                  :class="isAdminDictionariesLinkActive ? 'store-link-active' : ''"
-                >
-                  Справочники
-                </RouterLink>
-
-                <RouterLink
-                  v-if="authStore.isOrganizer"
-                  to="/organizer/dashboard"
-                  class="store-link"
-                  :class="isOrganizerDashboardLinkActive ? 'store-link-active' : ''"
-                >
-                  Dashboard
-                </RouterLink>
-
-                <RouterLink
-                  v-if="authStore.isOrganizer"
-                  to="/organizer/events"
-                  class="store-link"
-                  :class="isOrganizerEventsLinkActive ? 'store-link-active' : ''"
-                >
-                  События
-                </RouterLink>
-
-                <RouterLink
-                  v-if="authStore.isOrganizer"
-                  to="/organizer/halls"
-                  class="store-link"
-                  :class="isOrganizerHallsLinkActive ? 'store-link-active' : ''"
-                >
-                  Залы
-                </RouterLink>
-
-                <RouterLink
-                  v-if="authStore.isOrganizer"
-                  to="/organizer/tickets"
-                  class="store-link"
-                  :class="isOrganizerTicketsLinkActive ? 'store-link-active' : ''"
-                >
-                  Ticket Check
-                </RouterLink>
+                <template v-if="authStore.isVenueOwner">
+                  <RouterLink to="/venue/halls" class="store-link" :class="isVenueHallsLinkActive ? 'store-link-active' : ''">
+                    Площадки
+                  </RouterLink>
+                </template>
               </div>
             </div>
 
             <div class="flex flex-wrap items-center gap-3">
               <template v-if="authStore.isAuthenticated">
-                <RouterLink
-                  to="/profile"
-                  class="secondary-button gap-3 px-4 py-2.5"
-                >
+                <RouterLink to="/profile" class="secondary-button gap-3 px-4 py-2.5">
                   <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
                     {{ userInitials }}
                   </span>
@@ -225,22 +169,12 @@ onMounted(async () => {
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-2 lg:hidden">
-            <RouterLink
-              to="/events"
-              class="store-link"
-              :class="isCatalogLinkActive ? 'store-link-active' : ''"
-            >
+            <RouterLink to="/events" class="store-link" :class="isCatalogLinkActive ? 'store-link-active' : ''">
               Каталог
             </RouterLink>
-
-            <RouterLink
-              to="/assistant"
-              class="store-link"
-              :class="isConciergeLinkActive ? 'store-link-active' : ''"
-            >
+            <RouterLink v-if="authStore.isAuthenticated" to="/assistant" class="store-link" :class="isAssistantLinkActive ? 'store-link-active' : ''">
               Митя
             </RouterLink>
-
             <RouterLink
               v-if="authStore.isAuthenticated"
               to="/profile"
@@ -250,86 +184,41 @@ onMounted(async () => {
               Профиль
             </RouterLink>
 
-            <RouterLink
-              v-if="authStore.isAdmin"
-              to="/admin/dashboard"
-              class="store-link"
-              :class="isAdminDashboardLinkActive ? 'store-link-active' : ''"
-            >
-              Admin
-            </RouterLink>
+            <template v-if="authStore.isAdmin">
+              <RouterLink to="/admin/dashboard" class="store-link" :class="isAdminDashboardLinkActive ? 'store-link-active' : ''">
+                Admin
+              </RouterLink>
+              <RouterLink to="/admin/organizers" class="store-link" :class="isAdminOrganizersLinkActive ? 'store-link-active' : ''">
+                Компании
+              </RouterLink>
+              <RouterLink to="/admin/events" class="store-link" :class="isAdminEventsLinkActive ? 'store-link-active' : ''">
+                События
+              </RouterLink>
+              <RouterLink to="/admin/incidents" class="store-link" :class="isAdminIncidentsLinkActive ? 'store-link-active' : ''">
+                Инциденты
+              </RouterLink>
+              <RouterLink to="/admin/dictionaries" class="store-link" :class="isAdminDictionariesLinkActive ? 'store-link-active' : ''">
+                Справочники
+              </RouterLink>
+            </template>
 
-            <RouterLink
-              v-if="authStore.isAdmin"
-              to="/admin/organizers"
-              class="store-link"
-              :class="isAdminOrganizersLinkActive ? 'store-link-active' : ''"
-            >
-              Организаторы
-            </RouterLink>
+            <template v-if="authStore.isOrganizer">
+              <RouterLink to="/organizer/dashboard" class="store-link" :class="isOrganizerDashboardLinkActive ? 'store-link-active' : ''">
+                Dashboard
+              </RouterLink>
+              <RouterLink to="/organizer/events" class="store-link" :class="isOrganizerEventsLinkActive ? 'store-link-active' : ''">
+                События
+              </RouterLink>
+              <RouterLink to="/organizer/tickets" class="store-link" :class="isOrganizerTicketsLinkActive ? 'store-link-active' : ''">
+                Билеты
+              </RouterLink>
+            </template>
 
-            <RouterLink
-              v-if="authStore.isAdmin"
-              to="/admin/events"
-              class="store-link"
-              :class="isAdminEventsLinkActive ? 'store-link-active' : ''"
-            >
-              Модерация
-            </RouterLink>
-
-            <RouterLink
-              v-if="authStore.isAdmin"
-              to="/admin/incidents"
-              class="store-link"
-              :class="isAdminIncidentsLinkActive ? 'store-link-active' : ''"
-            >
-              Инциденты
-            </RouterLink>
-
-            <RouterLink
-              v-if="authStore.isAdmin"
-              to="/admin/dictionaries"
-              class="store-link"
-              :class="isAdminDictionariesLinkActive ? 'store-link-active' : ''"
-            >
-              Справочники
-            </RouterLink>
-
-            <RouterLink
-              v-if="authStore.isOrganizer"
-              to="/organizer/dashboard"
-              class="store-link"
-              :class="isOrganizerDashboardLinkActive ? 'store-link-active' : ''"
-            >
-              Dashboard
-            </RouterLink>
-
-            <RouterLink
-              v-if="authStore.isOrganizer"
-              to="/organizer/events"
-              class="store-link"
-              :class="isOrganizerEventsLinkActive ? 'store-link-active' : ''"
-            >
-              События
-            </RouterLink>
-
-            <RouterLink
-              v-if="authStore.isOrganizer"
-              to="/organizer/halls"
-              class="store-link"
-              :class="isOrganizerHallsLinkActive ? 'store-link-active' : ''"
-            >
-              Залы
-            </RouterLink>
-
-            <RouterLink
-              v-if="authStore.isOrganizer"
-              to="/organizer/tickets"
-              class="store-link"
-              :class="isOrganizerTicketsLinkActive ? 'store-link-active' : ''"
-            >
-              Ticket Check
-            </RouterLink>
+            <template v-if="authStore.isVenueOwner">
+              <RouterLink to="/venue/halls" class="store-link" :class="isVenueHallsLinkActive ? 'store-link-active' : ''">
+                Площадки
+              </RouterLink>
+            </template>
           </div>
         </nav>
       </header>

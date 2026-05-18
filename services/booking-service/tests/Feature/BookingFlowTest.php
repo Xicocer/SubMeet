@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Booking;
+use App\Models\LoyaltyPointAccount;
 use App\Models\Payment;
 use App\Models\SessionSeat;
 use App\Models\SessionStandingArea;
@@ -164,6 +165,81 @@ class BookingFlowTest extends TestCase
         $this->assertDatabaseHas('session_seats', [
             'element_id' => 'seat-a1',
             'status' => SessionSeat::STATUS_BOOKED,
+        ]);
+    }
+
+    public function test_guest_can_purchase_ticket_with_email_and_access_token(): void
+    {
+        $this->fakeUpstream();
+
+        $response = $this
+            ->postJson('/api/bookings/guest-purchase', [
+                'session_id' => 900,
+                'customer_email' => 'guest@example.com',
+                'guest_birth_date' => '1990-05-10',
+                'seat_ids' => ['seat-a1'],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('booking.user_id', null)
+            ->assertJsonPath('booking.customer_email', 'guest@example.com')
+            ->assertJsonPath('booking.is_guest', true)
+            ->assertJsonPath('booking.total_amount', '1000.00')
+            ->assertJsonPath('booking.guest_access_token', fn ($value) => is_string($value) && strlen($value) >= 32);
+
+        $bookingId = $response->json('booking.id');
+        $guestToken = $response->json('booking.guest_access_token');
+
+        $this
+            ->postJson("/api/guest/bookings/{$bookingId}/refresh-payment", [
+                'token' => $guestToken,
+            ])
+            ->assertOk()
+            ->assertJsonPath('booking.status', Booking::STATUS_CONFIRMED)
+            ->assertJsonPath('booking.ticket.code', fn ($value) => is_string($value) && $value !== '');
+
+        $this->assertDatabaseHas('session_seats', [
+            'element_id' => 'seat-a1',
+            'status' => SessionSeat::STATUS_BOOKED,
+        ]);
+    }
+
+    public function test_registered_user_can_spend_and_earn_loyalty_points(): void
+    {
+        $this->fakeUpstream();
+
+        LoyaltyPointAccount::query()->create([
+            'user_id' => 501,
+            'balance' => 1000,
+            'earned_total' => 1000,
+            'spent_total' => 0,
+        ]);
+
+        $bookingId = $this
+            ->withToken('token-user-1')
+            ->postJson('/api/bookings/purchase', [
+                'session_id' => 900,
+                'seat_ids' => ['seat-a1'],
+                'loyalty_points_to_spend' => 900,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('booking.subtotal_amount', '1000.00')
+            ->assertJsonPath('booking.discount_amount', '800.00')
+            ->assertJsonPath('booking.total_amount', '200.00')
+            ->assertJsonPath('booking.loyalty_points_spent', 800)
+            ->assertJsonPath('booking.loyalty_points_earned', 150)
+            ->json('booking.id');
+
+        $this
+            ->withToken('token-user-1')
+            ->postJson("/api/bookings/{$bookingId}/refresh-payment")
+            ->assertOk()
+            ->assertJsonPath('booking.status', Booking::STATUS_CONFIRMED);
+
+        $this->assertDatabaseHas('loyalty_point_accounts', [
+            'user_id' => 501,
+            'balance' => 350,
+            'earned_total' => 1150,
+            'spent_total' => 800,
         ]);
     }
 

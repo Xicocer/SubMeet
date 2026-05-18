@@ -14,12 +14,18 @@ class AdminOrganizerController extends Controller
     {
         $validated = $request->validate([
             'status' => ['nullable', 'in:pending,approved,rejected,blocked'],
+            'role' => ['nullable', 'in:organizer,venue_owner'],
             'search' => ['nullable', 'string', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $organizers = OrganizerProfile::query()
             ->with(['user.role'])
+            ->whereHas('user.role', function ($query) use ($validated): void {
+                $query->whereIn('role', array_filter([
+                    $validated['role'] ?? null,
+                ]) ?: ['organizer', 'venue_owner']);
+            })
             ->when(
                 $validated['status'] ?? null,
                 fn ($query, string $status) => $query->where('moderation_status', $status)
@@ -61,9 +67,9 @@ class AdminOrganizerController extends Controller
             ->where('user_id', $id)
             ->firstOrFail();
 
-        if (($profile->user?->role?->role ?? null) !== 'organizer') {
+        if (!in_array(($profile->user?->role?->role ?? null), ['organizer', 'venue_owner'], true)) {
             throw ValidationException::withMessages([
-                'user' => ['The selected user is not an organizer account.'],
+                'user' => ['The selected user is not a business account.'],
             ]);
         }
 
@@ -78,7 +84,7 @@ class AdminOrganizerController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Статус организатора обновлен.',
+            'message' => 'Статус бизнес-аккаунта обновлен.',
             'organizer' => $this->transformProfile($profile->fresh(['user.role'])),
         ]);
     }

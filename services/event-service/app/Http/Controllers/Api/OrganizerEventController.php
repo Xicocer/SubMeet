@@ -7,6 +7,7 @@ use App\Models\Event;
 use App\Models\EventSession;
 use App\Models\Tag;
 use App\Services\BookingServiceClient;
+use App\Services\EventTeaserService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ class OrganizerEventController extends Controller
 {
     public function __construct(
         private readonly BookingServiceClient $bookingServiceClient,
+        private readonly EventTeaserService $teaserService,
     ) {
     }
 
@@ -39,6 +41,9 @@ class OrganizerEventController extends Controller
                 'ageRating:id,label,min_age',
                 'organizer:id,auth_user_id,full_name,company_name,email',
                 'tags:id,name,slug',
+            ])
+            ->withCount([
+                'sessions as available_sessions_count' => fn ($query) => $query->available(),
             ])
             ->when(
                 $validated['status'] ?? null,
@@ -88,6 +93,8 @@ class OrganizerEventController extends Controller
             'ageRating:id,label,min_age',
             'organizer:id,auth_user_id,full_name,company_name,email',
             'tags:id,name,slug',
+        ])->loadCount([
+            'sessions as available_sessions_count' => fn ($query) => $query->available(),
         ]);
 
         return response()->json([
@@ -141,6 +148,10 @@ class OrganizerEventController extends Controller
             'ageRating:id,label,min_age',
             'organizer:id,auth_user_id,full_name,company_name,email',
             'tags:id,name,slug',
+        ]);
+
+        $event->loadCount([
+            'sessions as available_sessions_count' => fn ($query) => $query->available(),
         ]);
 
         return response()->json([
@@ -199,11 +210,15 @@ class OrganizerEventController extends Controller
             ]);
         }
 
+        $this->teaserService->sync($event->fresh(['tags']));
+
         $event->load([
             'category:id,name,slug',
             'ageRating:id,label,min_age',
             'organizer:id,auth_user_id,full_name,company_name,email',
             'tags:id,name,slug',
+        ])->loadCount([
+            'sessions as available_sessions_count' => fn ($query) => $query->available(),
         ]);
 
         return response()->json([
@@ -280,6 +295,8 @@ class OrganizerEventController extends Controller
 
     private function transformEvent(Event $event): array
     {
+        $isTeaser = $this->teaserService->isTeaser($event);
+
         return [
             'id' => $event->id,
             'title' => $event->title,
@@ -295,14 +312,7 @@ class OrganizerEventController extends Controller
                 'label' => $event->ageRating?->label,
                 'min_age' => $event->ageRating?->min_age,
             ],
-            'tags' => $event->tags
-                ->map(fn (Tag $tag) => [
-                    'id' => $tag->id,
-                    'name' => $tag->name,
-                    'slug' => $tag->slug,
-                ])
-                ->values()
-                ->all(),
+            'tags' => $this->teaserService->transformTags($event),
             'organizer_id' => $event->organizer_id,
             'organizer' => [
                 'id' => $event->organizer?->auth_user_id,
@@ -316,6 +326,9 @@ class OrganizerEventController extends Controller
             'moderated_at' => $event->moderated_at?->toISOString(),
             'created_at' => $event->created_at?->toISOString(),
             'updated_at' => $event->updated_at?->toISOString(),
+            'is_teaser' => $isTeaser,
+            'has_available_sessions' => !$isTeaser,
+            'teaser_reason' => $isTeaser ? EventTeaserService::REASON : null,
         ];
     }
 
@@ -341,6 +354,12 @@ class OrganizerEventController extends Controller
 
                 if ($slug === '') {
                     $slug = Str::lower(Str::replace(' ', '-', Str::squish($tagName)));
+                }
+
+                if ($this->teaserService->isReservedTagName($tagName) || $this->teaserService->isReservedTagSlug($slug)) {
+                    throw ValidationException::withMessages([
+                        'tags' => ['Тег "Тизер" ставится системой автоматически, когда опубликованное событие еще без сеансов.'],
+                    ]);
                 }
 
                 return [$slug => Str::squish($tagName)];

@@ -11,8 +11,10 @@ class DemoUsersSeeder extends Seeder
 {
     public function run(): void
     {
-        $roleIds = Role::query()
-            ->pluck('id', 'role');
+        $roleIds = Role::query()->pluck('id', 'role');
+
+        OrganizerProfile::query()->delete();
+        User::query()->delete();
 
         $users = [
             [
@@ -36,6 +38,16 @@ class DemoUsersSeeder extends Seeder
                 'status' => 1,
             ],
             [
+                'id' => 1203,
+                'full_name' => 'Ольга Миронова',
+                'email' => 'olga@submeet.local',
+                'phone' => '+79990001103',
+                'birth_date' => '2001-02-03',
+                'password' => 'Password123!',
+                'role' => 'user',
+                'status' => 1,
+            ],
+            [
                 'id' => 1101,
                 'full_name' => 'Марина Соколова',
                 'email' => 'dkh@submeet.local',
@@ -44,10 +56,10 @@ class DemoUsersSeeder extends Seeder
                 'password' => 'Password123!',
                 'role' => 'organizer',
                 'status' => 1,
-                'organizer_profile' => [
-                    'company_name' => 'ДКХ',
+                'profile' => [
+                    'company_name' => 'ДКХ Booking',
                     'moderation_status' => 'approved',
-                    'moderation_note' => 'Проверенные реквизиты, можно публиковать мероприятия.',
+                    'moderation_note' => 'Организатор проверен и может публиковать мероприятия.',
                 ],
             ],
             [
@@ -59,10 +71,10 @@ class DemoUsersSeeder extends Seeder
                 'password' => 'Password123!',
                 'role' => 'organizer',
                 'status' => 1,
-                'organizer_profile' => [
-                    'company_name' => 'Milo Concert Hall',
+                'profile' => [
+                    'company_name' => 'Milo Live',
                     'moderation_status' => 'approved',
-                    'moderation_note' => 'Аккаунт одобрен для полноценной работы в системе.',
+                    'moderation_note' => 'Организатор одобрен для работы с площадками и событиями.',
                 ],
             ],
             [
@@ -74,7 +86,7 @@ class DemoUsersSeeder extends Seeder
                 'password' => 'Password123!',
                 'role' => 'organizer',
                 'status' => 1,
-                'organizer_profile' => [
+                'profile' => [
                     'company_name' => 'City Light Events',
                     'moderation_status' => 'pending',
                     'moderation_note' => 'Ожидает проверки документов организатора.',
@@ -89,10 +101,70 @@ class DemoUsersSeeder extends Seeder
                 'password' => 'Password123!',
                 'role' => 'organizer',
                 'status' => 0,
-                'organizer_profile' => [
+                'profile' => [
                     'company_name' => 'Old Arena Group',
                     'moderation_status' => 'blocked',
-                    'moderation_note' => 'Аккаунт временно ограничен после ручной проверки.',
+                    'moderation_note' => 'Аккаунт организатора временно ограничен после ручной проверки.',
+                ],
+            ],
+            [
+                'id' => 1151,
+                'full_name' => 'Виктор Платонов',
+                'email' => 'arena@submeet.local',
+                'phone' => '+79990002201',
+                'birth_date' => null,
+                'password' => 'Password123!',
+                'role' => 'venue_owner',
+                'status' => 1,
+                'profile' => [
+                    'company_name' => 'Arena Spaces',
+                    'moderation_status' => 'approved',
+                    'moderation_note' => 'Владелец площадок одобрен. Можно принимать заявки на аренду.',
+                ],
+            ],
+            [
+                'id' => 1152,
+                'full_name' => 'Дарья Кравцова',
+                'email' => 'roof@submeet.local',
+                'phone' => '+79990002202',
+                'birth_date' => null,
+                'password' => 'Password123!',
+                'role' => 'venue_owner',
+                'status' => 1,
+                'profile' => [
+                    'company_name' => 'Roofline Venues',
+                    'moderation_status' => 'approved',
+                    'moderation_note' => 'Площадки доступны для бронирования организаторами.',
+                ],
+            ],
+            [
+                'id' => 1153,
+                'full_name' => 'София Белова',
+                'email' => 'loft@submeet.local',
+                'phone' => '+79990002203',
+                'birth_date' => null,
+                'password' => 'Password123!',
+                'role' => 'venue_owner',
+                'status' => 1,
+                'profile' => [
+                    'company_name' => 'Loft District',
+                    'moderation_status' => 'pending',
+                    'moderation_note' => 'Ожидает проверки прав на площадку.',
+                ],
+            ],
+            [
+                'id' => 1154,
+                'full_name' => 'Павел Чернов',
+                'email' => 'closedhall@submeet.local',
+                'phone' => '+79990002204',
+                'birth_date' => null,
+                'password' => 'Password123!',
+                'role' => 'venue_owner',
+                'status' => 0,
+                'profile' => [
+                    'company_name' => 'Closed Hall Ops',
+                    'moderation_status' => 'blocked',
+                    'moderation_note' => 'Площадка заблокирована до завершения проверки документов.',
                 ],
             ],
             [
@@ -108,42 +180,36 @@ class DemoUsersSeeder extends Seeder
         ];
 
         foreach ($users as $userData) {
-            $roleName = (string) $userData['role'];
-            $moderationStatus = (string) data_get($userData, 'organizer_profile.moderation_status', 'pending');
+            $user = User::query()->create([
+                'id' => $userData['id'],
+                'full_name' => $userData['full_name'],
+                'email' => $userData['email'],
+                'phone' => $userData['phone'],
+                'birth_date' => $userData['birth_date'],
+                'password' => $userData['password'],
+                'role_id' => $roleIds[(string) $userData['role']] ?? null,
+                'status' => $userData['status'],
+            ]);
+
+            if (!in_array($userData['role'], ['organizer', 'venue_owner'], true)) {
+                continue;
+            }
+
+            $moderationStatus = (string) data_get($userData, 'profile.moderation_status', 'pending');
             $moderatedAt = match ($moderationStatus) {
-                'approved' => now()->subDays(12),
+                'approved' => now()->subDays(10),
                 'blocked' => now()->subDays(2),
                 'rejected' => now()->subDay(),
                 default => null,
             };
 
-            $user = User::query()->updateOrCreate(
-                ['id' => $userData['id']],
-                [
-                    'full_name' => $userData['full_name'],
-                    'email' => $userData['email'],
-                    'phone' => $userData['phone'],
-                    'birth_date' => $userData['birth_date'],
-                    'password' => $userData['password'],
-                    'role_id' => $roleIds[$roleName] ?? null,
-                    'status' => $userData['status'],
-                ]
-            );
-
-            if ($roleName !== 'organizer') {
-                OrganizerProfile::query()->where('user_id', $user->id)->delete();
-                continue;
-            }
-
-            OrganizerProfile::query()->updateOrCreate(
-                ['user_id' => $user->id],
-                [
-                    'company_name' => data_get($userData, 'organizer_profile.company_name'),
-                    'moderation_status' => $moderationStatus,
-                    'moderation_note' => data_get($userData, 'organizer_profile.moderation_note'),
-                    'moderated_at' => $moderatedAt,
-                ]
-            );
+            OrganizerProfile::query()->create([
+                'user_id' => $user->id,
+                'company_name' => data_get($userData, 'profile.company_name'),
+                'moderation_status' => $moderationStatus,
+                'moderation_note' => data_get($userData, 'profile.moderation_note'),
+                'moderated_at' => $moderatedAt,
+            ]);
         }
     }
 }

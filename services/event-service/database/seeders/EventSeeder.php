@@ -5,8 +5,11 @@ namespace Database\Seeders;
 use App\Models\AgeRating;
 use App\Models\Category;
 use App\Models\Event;
+use App\Models\EventFavorite;
+use App\Models\EventSession;
 use App\Models\Tag;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -14,6 +17,12 @@ class EventSeeder extends Seeder
 {
     public function run(): void
     {
+        EventFavorite::query()->delete();
+        EventSession::query()->delete();
+        DB::table('event_tag')->delete();
+        Tag::query()->delete();
+        Event::query()->delete();
+
         $events = [
             [
                 'id' => 3101,
@@ -24,7 +33,8 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '16+',
                 'organizer_id' => 1101,
                 'status' => Event::STATUS_PUBLISHED,
-                'tags' => ['рок', 'крыша', 'живой звук', 'ночной концерт'],
+                'moderation_note' => null,
+                'tags' => ['рок', 'крыша', 'живой звук', 'вечерний концерт'],
             ],
             [
                 'id' => 3102,
@@ -35,6 +45,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '18+',
                 'organizer_id' => 1102,
                 'status' => Event::STATUS_PUBLISHED,
+                'moderation_note' => null,
                 'tags' => ['стендап', 'комики', 'юмор', 'вечер с друзьями'],
             ],
             [
@@ -46,6 +57,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '12+',
                 'organizer_id' => 1101,
                 'status' => Event::STATUS_PUBLISHED,
+                'moderation_note' => null,
                 'tags' => ['театр', 'иммерсивный', 'камерная сцена', 'свидание'],
             ],
             [
@@ -57,6 +69,7 @@ class EventSeeder extends Seeder
                 'age_rating_label' => '6+',
                 'organizer_id' => 1102,
                 'status' => Event::STATUS_PUBLISHED,
+                'moderation_note' => null,
                 'tags' => ['выставка', 'digital art', 'инсталляции', 'семья'],
             ],
             [
@@ -66,8 +79,9 @@ class EventSeeder extends Seeder
                 'poster_url' => 'https://picsum.photos/seed/submeet-demo-jazz/1200/800',
                 'category_slug' => 'concert',
                 'age_rating_label' => '12+',
-                'organizer_id' => 1102,
-                'status' => Event::STATUS_PENDING_REVIEW,
+                'organizer_id' => 1101,
+                'status' => Event::STATUS_DRAFT,
+                'moderation_note' => 'Организатору отказано по текущему слоту площадки, событие осталось в черновиках.',
                 'tags' => ['джаз', 'свидание', 'уютный вечер', 'live'],
             ],
             [
@@ -78,18 +92,20 @@ class EventSeeder extends Seeder
                 'category_slug' => 'concert',
                 'age_rating_label' => '16+',
                 'organizer_id' => 1101,
-                'status' => Event::STATUS_DRAFT,
+                'status' => Event::STATUS_PENDING_REVIEW,
+                'moderation_note' => 'Событие ожидает проверки описания и подтверждения площадки.',
                 'tags' => ['акустика', 'квартирник', 'камерный концерт'],
             ],
             [
                 'id' => 3107,
                 'title' => 'Фестиваль городского света',
-                'description' => 'Масштабный open air, который был снят с публикации после переноса площадки.',
+                'description' => 'Масштабный open air, который был снят с публикации после смены концепции.',
                 'poster_url' => 'https://picsum.photos/seed/submeet-demo-lightfest/1200/800',
                 'category_slug' => 'festival',
                 'age_rating_label' => '0+',
-                'organizer_id' => 1101,
+                'organizer_id' => 1102,
                 'status' => Event::STATUS_CANCELLED,
+                'moderation_note' => 'Организатор отменил событие после закрытия площадочного слота.',
                 'tags' => ['фестиваль', 'open air', 'световое шоу'],
             ],
         ];
@@ -102,21 +118,18 @@ class EventSeeder extends Seeder
                 throw new InvalidArgumentException('Missing category or age rating for demo events.');
             }
 
-            $event = Event::query()->updateOrCreate(
-                ['id' => $item['id']],
-                [
-                    'title' => $item['title'],
-                    'description' => $item['description'],
-                    'poster_url' => $item['poster_url'],
-                    'category_id' => $category->id,
-                    'age_rating_id' => $ageRating->id,
-                    'organizer_id' => $item['organizer_id'],
-                    'status' => $item['status'],
-                    'moderation_note' => $item['status'] === Event::STATUS_PENDING_REVIEW
-                        ? 'Ожидает решения модератора перед публикацией.'
-                        : null,
-                ]
-            );
+            $event = Event::query()->create([
+                'id' => $item['id'],
+                'title' => $item['title'],
+                'description' => $item['description'],
+                'poster_url' => $item['poster_url'],
+                'category_id' => $category->id,
+                'age_rating_id' => $ageRating->id,
+                'organizer_id' => $item['organizer_id'],
+                'status' => $item['status'],
+                'moderation_note' => $item['moderation_note'],
+                'moderated_at' => $item['status'] === Event::STATUS_PENDING_REVIEW ? null : now()->subDays(4),
+            ]);
 
             $tagIds = collect($item['tags'])
                 ->map(fn (string $tagName) => trim($tagName))

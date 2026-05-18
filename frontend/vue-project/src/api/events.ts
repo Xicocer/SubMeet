@@ -9,6 +9,8 @@ import type {
   EventListFilters,
   EventSession,
   OrganizerEvent,
+  OrganizerEventCopywriterPayload,
+  OrganizerEventCopywriterResponse,
   OrganizerEventMutationResponse,
   OrganizerEventsFilters,
   OrganizerEventPayload,
@@ -89,6 +91,17 @@ export const updateOrganizerEventRequest = async (
   payload: OrganizerEventPayload,
 ) => {
   const { data } = await eventApi.put<OrganizerEventMutationResponse>(`/organizer/events/${id}`, payload)
+  return data
+}
+
+export const rewriteOrganizerEventDescriptionRequest = async (
+  payload: OrganizerEventCopywriterPayload,
+) => {
+  const { data } = await eventApi.post<OrganizerEventCopywriterResponse>(
+    '/organizer/events/copywriter/rewrite',
+    payload,
+  )
+
   return data
 }
 

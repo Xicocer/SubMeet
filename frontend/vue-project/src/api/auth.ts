@@ -7,6 +7,7 @@ import type {
   OrganizerRegisterPayload,
   RegisterPayload,
   UpdateProfilePayload,
+  VenueOwnerRegisterPayload,
 } from '@/types/auth'
 
 export const registerRequest = async (payload: RegisterPayload) => {
@@ -16,6 +17,11 @@ export const registerRequest = async (payload: RegisterPayload) => {
 
 export const registerOrganizerRequest = async (payload: OrganizerRegisterPayload) => {
   const { data } = await authApi.post<AuthResponse>('/organizers/register', payload)
+  return data
+}
+
+export const registerVenueOwnerRequest = async (payload: VenueOwnerRegisterPayload) => {
+  const { data } = await authApi.post<AuthResponse>('/venues/register', payload)
   return data
 }
 

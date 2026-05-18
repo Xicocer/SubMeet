@@ -6,9 +6,16 @@ import {
   meRequest,
   registerRequest,
   registerOrganizerRequest,
+  registerVenueOwnerRequest,
   updateProfileRequest,
 } from '@/api/auth'
-import type { LoginPayload, OrganizerRegisterPayload, RegisterPayload, UpdateProfilePayload } from '@/types/auth'
+import type {
+  LoginPayload,
+  OrganizerRegisterPayload,
+  RegisterPayload,
+  UpdateProfilePayload,
+  VenueOwnerRegisterPayload,
+} from '@/types/auth'
 import type { User } from '@/types/user'
 
 const extractErrorMessage = (error: any, fallback: string) => {
@@ -34,6 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => Boolean(token.value))
   const roleName = computed(() => user.value?.role?.role ?? 'user')
   const isOrganizer = computed(() => roleName.value === 'organizer')
+  const isVenueOwner = computed(() => roleName.value === 'venue_owner')
   const isAdmin = computed(() => roleName.value === 'admin')
 
   const setToken = (value: string | null) => {
@@ -79,6 +87,23 @@ export const useAuthStore = defineStore('auth', () => {
       return data
     } catch (e: any) {
       error.value = extractErrorMessage(e, 'Не удалось зарегистрировать организатора.')
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const registerVenueOwner = async (payload: VenueOwnerRegisterPayload) => {
+    loading.value = true
+    clearError()
+
+    try {
+      const data = await registerVenueOwnerRequest(payload)
+      setToken(data.token)
+      user.value = data.user
+      return data
+    } catch (e: any) {
+      error.value = extractErrorMessage(e, 'Не удалось зарегистрировать владельца площадки.')
       throw e
     } finally {
       loading.value = false
@@ -156,10 +181,12 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     isOrganizer,
+    isVenueOwner,
     isAdmin,
     roleName,
     register,
     registerOrganizer,
+    registerVenueOwner,
     login,
     fetchMe,
     updateProfile,

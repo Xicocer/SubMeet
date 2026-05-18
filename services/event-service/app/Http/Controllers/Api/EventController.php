@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventFavorite;
 use App\Models\EventSession;
-use App\Models\Tag;
 use App\Services\AuthServiceClient;
+use App\Services\EventTeaserService;
 use App\Services\HallServiceClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +18,7 @@ class EventController extends Controller
     public function __construct(
         private readonly HallServiceClient $hallServiceClient,
         private readonly AuthServiceClient $authServiceClient,
+        private readonly EventTeaserService $teaserService,
     ) {
     }
 
@@ -26,6 +27,7 @@ class EventController extends Controller
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:255'],
+            'tag' => ['nullable', 'string', 'max:255'],
             'age' => ['nullable', 'integer', 'min:0'],
             'sort' => ['nullable', 'in:newest,oldest,title_asc,title_desc'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
@@ -38,11 +40,38 @@ class EventController extends Controller
                 'ageRating:id,label,min_age',
                 'organizer:id,auth_user_id,full_name,company_name,email',
                 'tags:id,name,slug',
+            ])
+            ->withCount([
+                'sessions as available_sessions_count' => fn ($query) => $query->available(),
             ]);
 
         $query->when(
             $validated['search'] ?? null,
-            fn ($builder, string $search) => $builder->where('title', 'like', '%' . $search . '%')
+            function ($builder, string $search): void {
+                $like = '%' . trim($search) . '%';
+                $normalizedSearch = mb_strtolower(trim($search));
+                $looksLikeTeaserSearch = str_contains($normalizedSearch, 'тизер')
+                    || str_contains($normalizedSearch, EventTeaserService::TAG_SLUG);
+
+                $builder->where(function ($searchQuery) use ($like, $looksLikeTeaserSearch): void {
+                    $searchQuery
+                        ->where('title', 'like', $like)
+                        ->orWhere('description', 'like', $like)
+                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', $like))
+                        ->orWhereHas('tags', function ($tagQuery) use ($like): void {
+                            $tagQuery
+                                ->where('name', 'like', $like)
+                                ->orWhere('slug', 'like', $like);
+                        });
+
+                    if ($looksLikeTeaserSearch) {
+                        $searchQuery->orWhereDoesntHave(
+                            'sessions',
+                            fn ($sessionQuery) => $sessionQuery->available(),
+                        );
+                    }
+                });
+            }
         );
 
         $query->when(
@@ -51,6 +80,25 @@ class EventController extends Controller
                 'category',
                 fn ($categoryQuery) => $categoryQuery->where('slug', $categorySlug)
             )
+        );
+
+        $query->when(
+            $validated['tag'] ?? null,
+            function ($builder, string $tagSlug): void {
+                if ($this->teaserService->isReservedTagSlug($tagSlug)) {
+                    $builder->whereDoesntHave(
+                        'sessions',
+                        fn ($sessionQuery) => $sessionQuery->available(),
+                    );
+
+                    return;
+                }
+
+                $builder->whereHas(
+                    'tags',
+                    fn ($tagQuery) => $tagQuery->where('slug', $tagSlug)
+                );
+            }
         );
 
         $query->when(
@@ -102,6 +150,9 @@ class EventController extends Controller
                 'organizer:id,auth_user_id,full_name,company_name,email',
                 'tags:id,name,slug',
             ])
+            ->withCount([
+                'sessions as available_sessions_count' => fn ($query) => $query->available(),
+            ])
             ->findOrFail($id);
 
         $authUserId = $this->resolveOptionalAuthUserId($request);
@@ -144,6 +195,8 @@ class EventController extends Controller
 
     private function transformEvent(Event $event, bool $detailed = false, bool $isWanted = false): array
     {
+        $isTeaser = $this->teaserService->isTeaser($event);
+
         $payload = [
             'id' => $event->id,
             'title' => $event->title,
@@ -158,14 +211,7 @@ class EventController extends Controller
                 'label' => $event->ageRating?->label,
                 'min_age' => $event->ageRating?->min_age,
             ],
-            'tags' => $event->tags
-                ->map(fn (Tag $tag) => [
-                    'id' => $tag->id,
-                    'name' => $tag->name,
-                    'slug' => $tag->slug,
-                ])
-                ->values()
-                ->all(),
+            'tags' => $this->teaserService->transformTags($event),
             'organizer' => [
                 'id' => $event->organizer?->auth_user_id,
                 'full_name' => $event->organizer?->full_name,
@@ -174,6 +220,9 @@ class EventController extends Controller
                 'email' => $event->organizer?->email,
             ],
             'is_wanted' => $isWanted,
+            'is_teaser' => $isTeaser,
+            'has_available_sessions' => !$isTeaser,
+            'teaser_reason' => $isTeaser ? EventTeaserService::REASON : null,
         ];
 
         if ($detailed) {

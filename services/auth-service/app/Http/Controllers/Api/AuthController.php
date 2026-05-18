@@ -64,25 +64,47 @@ class AuthController extends Controller
         $normalizedPhone = $this->normalizePhone($validated['phone']);
         $this->ensurePhoneIsUnique($normalizedPhone);
 
-        $user = User::query()->create([
-            'full_name' => $validated['full_name'],
-            'email' => $validated['email'],
-            'phone' => $normalizedPhone,
-            'birth_date' => null,
-            'password' => $validated['password'],
-            'role_id' => $this->resolveRoleId('organizer'),
-            'status' => 1,
-        ]);
-
-        OrganizerProfile::query()->create([
-            'user_id' => $user->id,
-            'company_name' => $validated['company_name'],
-            'moderation_status' => 'pending',
-        ]);
+        $user = $this->createBusinessUser(
+            roleName: 'organizer',
+            companyName: $validated['company_name'],
+            fullName: $validated['full_name'],
+            email: $validated['email'],
+            normalizedPhone: $normalizedPhone,
+            password: $validated['password'],
+        );
 
         return $this->buildAuthenticatedResponse(
             $user,
             'Организатор успешно зарегистрирован',
+            201,
+        );
+    }
+
+    public function registerVenueOwner(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'company_name' => ['required', 'string', 'min:2', 'max:255'],
+            'full_name' => ['required', 'string', 'min:3', 'max:255'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'phone' => ['required', 'string', 'max:25'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $normalizedPhone = $this->normalizePhone($validated['phone']);
+        $this->ensurePhoneIsUnique($normalizedPhone);
+
+        $user = $this->createBusinessUser(
+            roleName: 'venue_owner',
+            companyName: $validated['company_name'],
+            fullName: $validated['full_name'],
+            email: $validated['email'],
+            normalizedPhone: $normalizedPhone,
+            password: $validated['password'],
+        );
+
+        return $this->buildAuthenticatedResponse(
+            $user,
+            'Владелец площадки успешно зарегистрирован',
             201,
         );
     }
@@ -131,17 +153,17 @@ class AuthController extends Controller
     {
         /** @var User $user */
         $user = $request->user()->loadMissing(['role', 'organizerProfile']);
-        $isOrganizer = $user->role?->role === 'organizer';
+        $isBusinessUser = in_array($user->role?->role, ['organizer', 'venue_owner'], true);
 
         $rules = [
             'full_name' => ['required', 'string', 'min:3', 'max:255'],
             'phone' => ['required', 'string', 'max:25'],
-            'birth_date' => $isOrganizer
+            'birth_date' => $isBusinessUser
                 ? ['nullable', 'date', 'before:today']
                 : ['required', 'date', 'before:today'],
         ];
 
-        if ($isOrganizer) {
+        if ($isBusinessUser) {
             $rules['company_name'] = ['required', 'string', 'min:2', 'max:255'];
         }
 
@@ -155,7 +177,7 @@ class AuthController extends Controller
             'birth_date' => $validated['birth_date'] ?? null,
         ]);
 
-        if ($isOrganizer) {
+        if ($isBusinessUser) {
             OrganizerProfile::query()->updateOrCreate(
                 ['user_id' => $user->id],
                 ['company_name' => $validated['company_name']]
@@ -255,5 +277,32 @@ class AuthController extends Controller
                 'error' => $exception->getMessage(),
             ]);
         }
+    }
+
+    private function createBusinessUser(
+        string $roleName,
+        string $companyName,
+        string $fullName,
+        string $email,
+        string $normalizedPhone,
+        string $password,
+    ): User {
+        $user = User::query()->create([
+            'full_name' => $fullName,
+            'email' => $email,
+            'phone' => $normalizedPhone,
+            'birth_date' => null,
+            'password' => $password,
+            'role_id' => $this->resolveRoleId($roleName),
+            'status' => 1,
+        ]);
+
+        OrganizerProfile::query()->create([
+            'user_id' => $user->id,
+            'company_name' => $companyName,
+            'moderation_status' => 'pending',
+        ]);
+
+        return $user;
     }
 }

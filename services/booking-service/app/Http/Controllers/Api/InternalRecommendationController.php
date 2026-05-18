@@ -17,6 +17,7 @@ class InternalRecommendationController extends Controller
                 Booking::STATUS_PAYMENT_PENDING,
                 Booking::STATUS_CONFIRMED,
             ])
+            ->whereNotNull('user_id')
             ->whereHas('snapshot')
             ->orderBy('id')
             ->get();

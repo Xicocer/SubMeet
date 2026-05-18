@@ -44,6 +44,7 @@ const createHallDraft = () => ({
   name: '',
   address: '',
   description: '',
+  hourly_rate: '',
   status: 'draft' as EditableHallStatus,
 })
 
@@ -52,7 +53,7 @@ const layoutDraft = ref<HallLayout>(createDefaultHallLayout())
 const layoutHistory = ref<HallLayout[]>([])
 const MAX_LAYOUT_HISTORY = 60
 
-const isEditMode = computed(() => route.name === 'organizer-hall-edit')
+const isEditMode = computed(() => route.name === 'venue-hall-edit')
 const editorTitle = computed(() => {
   return isEditMode.value ? hallForm.name.trim() || 'Редактирование зала' : 'Новый зал'
 })
@@ -80,7 +81,13 @@ const orderedLevels = computed(() => {
 const layoutSummary = computed(() => summarizeHallLayout(layoutDraft.value))
 const hasStage = computed(() => layoutSummary.value.hasStage)
 const canSaveHall = computed(() => {
-  return hallForm.name.trim() !== '' && hallForm.address.trim() !== '' && hasStage.value && layoutSummary.value.totalCapacity > 0
+  return (
+    hallForm.name.trim() !== '' &&
+    hallForm.address.trim() !== '' &&
+    Number(String(hallForm.hourly_rate).replace(',', '.')) > 0 &&
+    hasStage.value &&
+    layoutSummary.value.totalCapacity > 0
+  )
 })
 const canUndo = computed(() => layoutHistory.value.length > 0)
 const saveActionLabel = computed(() => {
@@ -245,6 +252,7 @@ const fillEditor = (hall: HallDetails) => {
   hallForm.name = hall.name
   hallForm.address = hall.address ?? ''
   hallForm.description = hall.description ?? ''
+  hallForm.hourly_rate = String(hall.hourly_rate ?? '')
   hallForm.status = hall.status === 'active' ? 'active' : 'draft'
   layoutDraft.value = normalizeHallLayout(hall.layout)
   clearLayoutHistory()
@@ -278,7 +286,7 @@ const syncEditorFromRoute = async () => {
 
   if (Number.isNaN(hallId) || hallId <= 0) {
     error.value = 'Некорректный идентификатор зала.'
-    await router.replace({ name: 'organizer-halls' })
+    await router.replace({ name: 'venue-halls' })
     return
   }
 
@@ -540,6 +548,7 @@ const saveHall = async () => {
       name: hallForm.name.trim(),
       address: hallForm.address.trim(),
       description: hallForm.description.trim() || null,
+      hourly_rate: Number(String(hallForm.hourly_rate).replace(',', '.')),
       status: hallForm.status,
       layout: cloneHallLayout(layoutDraft.value),
     }
@@ -551,7 +560,7 @@ const saveHall = async () => {
     success.value = response.message
 
     if (!isEditMode.value) {
-      await router.replace({ name: 'organizer-hall-edit', params: { id: response.hall.id } })
+      await router.replace({ name: 'venue-hall-edit', params: { id: response.hall.id } })
       return
     }
 
@@ -621,7 +630,7 @@ watch(
               Профиль
             </RouterLink>
             <RouterLink
-              to="/organizer/halls"
+              to="/venue/halls"
               class="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/90 transition hover:bg-white/10"
             >
               Залы
@@ -829,6 +838,18 @@ watch(
                   class="field-input resize-none"
                   placeholder="Коротко опиши формат зала и ключевые особенности."
                 ></textarea>
+              </div>
+
+              <div>
+                <label class="field-label" for="hall-hourly-rate">Ставка аренды в час</label>
+                <input
+                  id="hall-hourly-rate"
+                  v-model="hallForm.hourly_rate"
+                  type="text"
+                  inputmode="decimal"
+                  class="field-input"
+                  placeholder="3500"
+                />
               </div>
 
               <div class="grid grid-cols-2 gap-3">

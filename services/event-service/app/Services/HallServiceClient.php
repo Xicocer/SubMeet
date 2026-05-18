@@ -56,4 +56,27 @@ class HallServiceClient
 
         return $response->json();
     }
+
+    /**
+     * @return array<string, mixed>|null
+     *
+     * @throws ConnectionException
+     */
+    public function getOrganizerRentalRequest(string $token, int $requestId): ?array
+    {
+        $response = $this->http
+            ->acceptJson()
+            ->withToken($token)
+            ->get(rtrim(config('services.halls.base_url'), '/') . '/organizer/hall-rental-requests/' . $requestId);
+
+        if ($response->notFound() || $response->unauthorized() || $response->forbidden()) {
+            return null;
+        }
+
+        if ($response->failed()) {
+            $response->throw();
+        }
+
+        return $response->json();
+    }
 }

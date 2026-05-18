@@ -12,15 +12,16 @@ class OrganizerHallControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_store_creates_hall_for_authorized_organizer(): void
+    public function test_store_creates_hall_for_authorized_venue_owner(): void
     {
-        $this->fakeOrganizerAuth(77);
+        $this->fakeVenueOwnerAuth(77);
 
-        $response = $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->postJson('/api/organizer/halls', [
+        $response = $this->withHeader('Authorization', 'Bearer venue-token')
+            ->postJson('/api/venue/halls', [
                 'name' => 'Main Arena',
                 'address' => 'Нижний Новгород, ул. Большая Покровская, 1',
                 'description' => 'Universal concert hall for the MVP.',
+                'hourly_rate' => 12000,
                 'status' => 'active',
                 'layout' => $this->validLayout(),
             ]);
@@ -29,7 +30,8 @@ class OrganizerHallControllerTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('hall.name', 'Main Arena')
             ->assertJsonPath('hall.address', 'Нижний Новгород, ул. Большая Покровская, 1')
-            ->assertJsonPath('hall.organizer_id', 77)
+            ->assertJsonPath('hall.venue_owner_id', 77)
+            ->assertJsonPath('hall.hourly_rate', 12000)
             ->assertJsonPath('hall.status', 'active')
             ->assertJsonPath('hall.capacities.seat', 2)
             ->assertJsonPath('hall.capacities.vip', 1)
@@ -39,7 +41,8 @@ class OrganizerHallControllerTest extends TestCase
         $this->assertDatabaseHas('halls', [
             'name' => 'Main Arena',
             'address' => 'Нижний Новгород, ул. Большая Покровская, 1',
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
+            'hourly_rate' => 12000,
             'seat_capacity' => 2,
             'vip_capacity' => 1,
             'dancefloor_capacity' => 150,
@@ -50,16 +53,17 @@ class OrganizerHallControllerTest extends TestCase
 
     public function test_store_rejects_layout_without_stage(): void
     {
-        $this->fakeOrganizerAuth(77);
+        $this->fakeVenueOwnerAuth(77);
         $layout = $this->validLayout();
         $layout['elements'] = array_values(array_filter(
             $layout['elements'],
             fn (array $element) => $element['type'] !== 'stage'
         ));
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->postJson('/api/organizer/halls', [
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->postJson('/api/venue/halls', [
                 'name' => 'Broken Hall',
+                'hourly_rate' => 12000,
                 'address' => 'Нижний Новгород, проспект Гагарина, 10',
                 'layout' => $layout,
             ])
@@ -69,10 +73,10 @@ class OrganizerHallControllerTest extends TestCase
 
     public function test_show_returns_only_own_hall(): void
     {
-        $this->fakeOrganizerAuth(91);
+        $this->fakeVenueOwnerAuth(91);
 
         $hall = Hall::query()->create([
-            'organizer_id' => 91,
+            'venue_owner_id' => 91,
             'name' => 'Studio Hall',
             'address' => 'Нижний Новгород, ул. Рождественская, 8',
             'description' => 'Compact format hall.',
@@ -84,19 +88,19 @@ class OrganizerHallControllerTest extends TestCase
             'status' => 'draft',
         ]);
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->getJson("/api/organizer/halls/{$hall->id}")
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->getJson("/api/venue/halls/{$hall->id}")
             ->assertOk()
             ->assertJsonPath('id', $hall->id)
             ->assertJsonPath('layout.elements.0.type', 'stage');
     }
 
-    public function test_index_returns_only_current_organizer_halls(): void
+    public function test_index_returns_only_current_venue_owner_halls(): void
     {
-        $this->fakeOrganizerAuth(77);
+        $this->fakeVenueOwnerAuth(77);
 
         Hall::query()->create([
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
             'name' => 'My First Hall',
             'address' => 'Нижний Новгород, Кремль, 1',
             'description' => null,
@@ -109,7 +113,7 @@ class OrganizerHallControllerTest extends TestCase
         ]);
 
         Hall::query()->create([
-            'organizer_id' => 88,
+            'venue_owner_id' => 88,
             'name' => 'Foreign Hall',
             'address' => 'Москва, ул. Тверская, 1',
             'description' => null,
@@ -121,20 +125,20 @@ class OrganizerHallControllerTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->getJson('/api/organizer/halls')
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->getJson('/api/venue/halls')
             ->assertOk()
             ->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.name', 'My First Hall')
-            ->assertJsonPath('data.0.organizer_id', 77);
+            ->assertJsonPath('data.0.venue_owner_id', 77);
     }
 
     public function test_update_allows_editing_only_own_hall_and_recalculates_capacity(): void
     {
-        $this->fakeOrganizerAuth(77);
+        $this->fakeVenueOwnerAuth(77);
 
         $hall = Hall::query()->create([
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
             'name' => 'Old Name',
             'address' => 'Старый адрес, 1',
             'description' => 'Old description',
@@ -159,11 +163,12 @@ class OrganizerHallControllerTest extends TestCase
         ];
         $updatedLayout['elements'][4]['capacity'] = 180;
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->putJson("/api/organizer/halls/{$hall->id}", [
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->putJson("/api/venue/halls/{$hall->id}", [
                 'name' => 'Updated Hall',
                 'address' => 'Новый адрес, 15',
                 'description' => 'Updated description',
+                'hourly_rate' => 18000,
                 'status' => 'active',
                 'layout' => $updatedLayout,
             ])
@@ -177,6 +182,7 @@ class OrganizerHallControllerTest extends TestCase
             'id' => $hall->id,
             'name' => 'Updated Hall',
             'address' => 'Новый адрес, 15',
+            'hourly_rate' => 18000,
             'seat_capacity' => 3,
             'dancefloor_capacity' => 180,
             'total_capacity' => 184,
@@ -186,10 +192,10 @@ class OrganizerHallControllerTest extends TestCase
 
     public function test_destroy_archives_hall_instead_of_deleting_it(): void
     {
-        $this->fakeOrganizerAuth(77);
+        $this->fakeVenueOwnerAuth(77);
 
         $hall = Hall::query()->create([
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
             'name' => 'Archive Me',
             'address' => 'Нижний Новгород, пл. Минина, 2',
             'description' => null,
@@ -201,8 +207,8 @@ class OrganizerHallControllerTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->deleteJson("/api/organizer/halls/{$hall->id}")
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->deleteJson("/api/venue/halls/{$hall->id}")
             ->assertOk()
             ->assertJsonPath('hall.status', 'archived');
 
@@ -215,9 +221,9 @@ class OrganizerHallControllerTest extends TestCase
     public function test_destroy_rejects_archiving_hall_with_future_sessions(): void
     {
         $hall = Hall::query()->create([
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
             'name' => 'Busy Hall',
-            'address' => 'РќРёР¶РЅРёР№ РќРѕРІРіРѕСЂРѕРґ, РїР». РњРёРЅРёРЅР°, 2',
+            'address' => 'Нижний Новгород, пл. Минина, 2',
             'description' => null,
             'layout' => $this->validLayout(),
             'seat_capacity' => 2,
@@ -227,7 +233,7 @@ class OrganizerHallControllerTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->fakeOrganizerAuth(77, [
+        $this->fakeVenueOwnerAuth(77, [
             'hallUsage' => [
                 $hall->id => [
                     'hall_id' => $hall->id,
@@ -247,13 +253,13 @@ class OrganizerHallControllerTest extends TestCase
             ],
         ]);
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->deleteJson("/api/organizer/halls/{$hall->id}")
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->deleteJson("/api/venue/halls/{$hall->id}")
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['hall']);
     }
 
-    public function test_non_organizer_cannot_access_hall_management(): void
+    public function test_non_venue_owner_cannot_access_hall_management(): void
     {
         Http::fake([
             'http://127.0.0.1:8000/api/me' => Http::response([
@@ -269,35 +275,35 @@ class OrganizerHallControllerTest extends TestCase
         ]);
 
         $this->withHeader('Authorization', 'Bearer user-token')
-            ->getJson('/api/organizer/halls')
+            ->getJson('/api/venue/halls')
             ->assertForbidden()
-            ->assertJsonPath('message', 'Only organizers can access hall management.');
+            ->assertJsonPath('message', 'Only venue owners can access venue management.');
     }
 
     /**
      * @param  array{hallUsage?: array<int, array<string, mixed>>}  $options
      */
-    private function fakeOrganizerAuth(int $organizerId, array $options = []): void
+    private function fakeVenueOwnerAuth(int $venueOwnerId, array $options = []): void
     {
         $hallUsage = $options['hallUsage'] ?? [];
 
-        Http::fake(function (Request $request) use ($organizerId, $hallUsage) {
+        Http::fake(function (Request $request) use ($venueOwnerId, $hallUsage) {
             $url = $request->url();
 
             if ($url === 'http://127.0.0.1:8000/api/me') {
                 return Http::response([
                     'user' => [
-                        'id' => $organizerId,
-                        'full_name' => 'Hall Organizer',
-                        'email' => 'organizer@example.com',
+                        'id' => $venueOwnerId,
+                        'full_name' => 'Venue Owner',
+                        'email' => 'venue@example.com',
                         'role' => [
-                            'role' => 'organizer',
+                            'role' => 'venue_owner',
                         ],
                     ],
                 ], 200);
             }
 
-            if (preg_match('#^http://127\.0\.0\.1:8001/api/organizer/halls/(\d+)/usage$#', $url, $matches) === 1) {
+            if (preg_match('#^http://127\.0\.0\.1:8001/api/internal/halls/(\d+)/usage$#', $url, $matches) === 1) {
                 $hallId = (int) $matches[1];
 
                 return Http::response(

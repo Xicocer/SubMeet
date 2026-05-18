@@ -17,12 +17,14 @@ class EventServiceClient
      *
      * @throws ConnectionException
      */
-    public function getOrganizerHallUsage(string $token, int $hallId): ?array
+    public function getHallUsage(int $hallId): ?array
     {
         $response = $this->http
             ->acceptJson()
-            ->withToken($token)
-            ->get(rtrim(config('services.events.base_url'), '/') . '/organizer/halls/' . $hallId . '/usage');
+            ->withHeaders([
+                'X-Internal-Api-Key' => (string) config('services.events.internal_api_key'),
+            ])
+            ->get(rtrim(config('services.events.base_url'), '/') . '/internal/halls/' . $hallId . '/usage');
 
         if ($response->notFound() || $response->unauthorized() || $response->forbidden()) {
             return null;

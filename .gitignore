@@ -1,4 +1,7 @@
 .run/
+.tools/
+
+documents/
 
 # Python environments and caches
 .venv/

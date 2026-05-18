@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   createBookingRequest,
+  createGuestPurchaseRequest,
   createPurchaseRequest,
+  getLoyaltyAccountRequest,
   getSessionAvailabilityRequest,
 } from '@/api/booking'
 import BookingHallCanvas from '@/components/BookingHallCanvas.vue'
@@ -10,6 +12,8 @@ import { useAuthStore } from '@/stores/auth'
 import type {
   BookingHallLayout,
   BookingLayoutElement,
+  BookingPayload,
+  LoyaltyAccountResponse,
   SessionAvailabilityResponse,
   UserBooking,
 } from '@/types/booking'
@@ -37,28 +41,75 @@ const bookingSuccess = ref('')
 const reserveLoading = ref(false)
 const purchaseLoading = ref(false)
 const selectedElementId = ref<string | null>(null)
+const selectedElementIds = ref<string[]>([])
+const standingQuantities = ref<Record<string, number>>({})
 const latestBooking = ref<UserBooking | null>(null)
 const requestSequence = ref(0)
+const guestEmail = ref('')
+const guestBirthDate = ref('')
+const loyaltyAccount = ref<LoyaltyAccountResponse | null>(null)
+const loyaltyLoading = ref(false)
+const loyaltyPointsToSpend = ref(0)
 
 const AUTO_REFRESH_INTERVAL_MS = 5000
 let autoRefreshTimer: number | null = null
 
 const layout = computed<BookingHallLayout | null>(() => availability.value?.layout ?? null)
 
-const selectedElement = computed<BookingLayoutElement | null>(() => {
-  if (!layout.value || !selectedElementId.value) {
-    return null
+const selectedElements = computed(() => {
+  if (!layout.value) {
+    return []
   }
 
-  return layout.value.elements.find((element) => element.id === selectedElementId.value) ?? null
+  return selectedElementIds.value
+    .map((elementId) => layout.value?.elements.find((element) => element.id === elementId) ?? null)
+    .filter((element): element is BookingLayoutElement => element !== null)
 })
 
-const selectedPrice = computed(() => {
-  if (!selectedElement.value) {
-    return null
+const selectedSeatElements = computed(() => selectedElements.value.filter((element) => element.type !== 'dancefloor'))
+const selectedStandingElements = computed(() => selectedElements.value.filter((element) => element.type === 'dancefloor'))
+
+const elementPrice = (element: BookingLayoutElement) => Number(element.price ?? availability.value?.session.base_price ?? 0)
+
+const selectedTotal = computed(() => {
+  return selectedElements.value.reduce((total, element) => {
+    const quantity = element.type === 'dancefloor'
+      ? Math.max(1, Number(standingQuantities.value[element.id] ?? 1))
+      : 1
+
+    return total + elementPrice(element) * quantity
+  }, 0)
+})
+
+const selectedTicketsCount = computed(() => {
+  return selectedElements.value.reduce((total, element) => {
+    return total + (element.type === 'dancefloor' ? Math.max(1, Number(standingQuantities.value[element.id] ?? 1)) : 1)
+  }, 0)
+})
+
+const maxLoyaltySpend = computed(() => {
+  if (!loyaltyAccount.value) {
+    return 0
   }
 
-  return selectedElement.value.price ?? availability.value?.session.base_price ?? null
+  return Math.min(
+    loyaltyAccount.value.balance,
+    Math.floor(selectedTotal.value * (loyaltyAccount.value.max_discount_percent / 100)),
+  )
+})
+
+const normalizedLoyaltySpend = computed(() => {
+  return Math.max(0, Math.min(Number(loyaltyPointsToSpend.value || 0), maxLoyaltySpend.value))
+})
+
+const payableTotal = computed(() => Math.max(0, selectedTotal.value - normalizedLoyaltySpend.value))
+
+const loyaltyToEarn = computed(() => {
+  if (!authStore.isAuthenticated || !loyaltyAccount.value) {
+    return 0
+  }
+
+  return Math.floor(selectedTotal.value * (loyaltyAccount.value.earn_percent / 100))
 })
 
 const isElementAvailable = (element: BookingLayoutElement | null) => {
@@ -73,25 +124,18 @@ const isElementAvailable = (element: BookingLayoutElement | null) => {
   return (element.booking_state ?? 'free') === 'free'
 }
 
-const isSelectedElementAvailable = computed(() => isElementAvailable(selectedElement.value))
 const actionLoading = computed(() => reserveLoading.value || purchaseLoading.value)
 
 const canCreateBooking = computed(() => {
-  return authStore.isAuthenticated && selectedElement.value !== null && isSelectedElementAvailable.value && !actionLoading.value
+  return authStore.isAuthenticated && selectedElements.value.length > 0 && !actionLoading.value
 })
 
-const canPurchaseBooking = computed(() => canCreateBooking.value)
+const isGuestPurchaseReady = computed(() => {
+  return guestEmail.value.trim() !== '' && guestBirthDate.value.trim() !== ''
+})
 
-const selectionLabel = computed(() => {
-  if (!selectedElement.value) {
-    return 'Выберите место на схеме'
-  }
-
-  if (selectedElement.value.type === 'dancefloor') {
-    return selectedElement.value.label || 'Танцпол'
-  }
-
-  return selectedElement.value.label || 'Выбранное место'
+const canPurchaseBooking = computed(() => {
+  return selectedElements.value.length > 0 && !actionLoading.value && (authStore.isAuthenticated || isGuestPurchaseReady.value)
 })
 
 const close = () => {
@@ -129,14 +173,25 @@ const stopAutoRefresh = () => {
 }
 
 const syncSelection = (nextAvailability: SessionAvailabilityResponse, previousSelectionId: string | null) => {
-  if (!previousSelectionId) {
-    return
-  }
+  selectedElementIds.value = selectedElementIds.value.filter((elementId) => {
+    const nextElement = nextAvailability.layout.elements.find((element) => element.id === elementId) ?? null
 
-  const nextElement =
-    nextAvailability.layout.elements.find((element) => element.id === previousSelectionId) ?? null
+    if (!isElementAvailable(nextElement)) {
+      delete standingQuantities.value[elementId]
+      return false
+    }
 
-  selectedElementId.value = isElementAvailable(nextElement) ? previousSelectionId : null
+    if (nextElement?.type === 'dancefloor') {
+      const currentQuantity = Math.max(1, Number(standingQuantities.value[elementId] ?? 1))
+      standingQuantities.value[elementId] = Math.min(currentQuantity, Number(nextElement.capacity_available ?? 1))
+    }
+
+    return true
+  })
+
+  selectedElementId.value = previousSelectionId && selectedElementIds.value.includes(previousSelectionId)
+    ? previousSelectionId
+    : (selectedElementIds.value[selectedElementIds.value.length - 1] ?? null)
 }
 
 const loadAvailability = async (options?: {
@@ -161,6 +216,8 @@ const loadAvailability = async (options?: {
     bookingSuccess.value = ''
     latestBooking.value = null
     selectedElementId.value = null
+    selectedElementIds.value = []
+    standingQuantities.value = {}
   }
 
   try {
@@ -188,6 +245,25 @@ const loadAvailability = async (options?: {
   }
 }
 
+const loadLoyalty = async () => {
+  if (!authStore.isAuthenticated) {
+    loyaltyAccount.value = null
+    loyaltyPointsToSpend.value = 0
+    return
+  }
+
+  loyaltyLoading.value = true
+
+  try {
+    loyaltyAccount.value = await getLoyaltyAccountRequest()
+  } catch (requestError) {
+    console.error(requestError)
+    loyaltyAccount.value = null
+  } finally {
+    loyaltyLoading.value = false
+  }
+}
+
 const startAutoRefresh = () => {
   stopAutoRefresh()
 
@@ -205,24 +281,81 @@ const startAutoRefresh = () => {
 }
 
 const buildBookingPayload = () => {
-  if (!props.session?.id || !selectedElement.value) {
+  if (!props.session?.id || selectedElements.value.length === 0) {
     return null
   }
 
-  return selectedElement.value.type === 'dancefloor'
-    ? {
-        session_id: props.session.id,
-        standing: [
-          {
-            element_id: selectedElement.value.id,
-            quantity: 1,
-          },
-        ],
-      }
-    : {
-        session_id: props.session.id,
-        seat_ids: [selectedElement.value.id],
-      }
+  const payload: BookingPayload = {
+    session_id: props.session.id,
+  }
+
+  const seatIds = selectedSeatElements.value.map((element) => element.id)
+  const standing = selectedStandingElements.value.map((element) => ({
+    element_id: element.id,
+    quantity: Math.max(1, Number(standingQuantities.value[element.id] ?? 1)),
+  }))
+
+  if (seatIds.length > 0) {
+    payload.seat_ids = seatIds
+  }
+
+  if (standing.length > 0) {
+    payload.standing = standing
+  }
+
+  if (authStore.isAuthenticated && normalizedLoyaltySpend.value > 0) {
+    payload.loyalty_points_to_spend = normalizedLoyaltySpend.value
+  }
+
+  if (!authStore.isAuthenticated) {
+    payload.customer_email = guestEmail.value.trim()
+    payload.guest_birth_date = guestBirthDate.value
+  }
+
+  return payload
+}
+
+const selectElement = (elementId: string | null) => {
+  if (!elementId || !layout.value) {
+    selectedElementId.value = null
+    selectedElementIds.value = []
+    standingQuantities.value = {}
+    loyaltyPointsToSpend.value = 0
+    return
+  }
+
+  const element = layout.value.elements.find((candidate) => candidate.id === elementId) ?? null
+
+  if (!isElementAvailable(element)) {
+    return
+  }
+
+  selectedElementId.value = elementId
+
+  if (selectedElementIds.value.includes(elementId)) {
+    selectedElementIds.value = selectedElementIds.value.filter((id) => id !== elementId)
+    delete standingQuantities.value[elementId]
+  } else {
+    selectedElementIds.value = [...selectedElementIds.value, elementId]
+
+    if (element?.type === 'dancefloor') {
+      standingQuantities.value[elementId] = 1
+    }
+  }
+
+  loyaltyPointsToSpend.value = Math.min(loyaltyPointsToSpend.value, maxLoyaltySpend.value)
+}
+
+const setStandingQuantity = (element: BookingLayoutElement, value: number | string) => {
+  const available = Math.max(1, Number(element.capacity_available ?? 1))
+  const quantity = Math.max(1, Math.min(Number(value || 1), available))
+
+  standingQuantities.value[element.id] = quantity
+  loyaltyPointsToSpend.value = Math.min(loyaltyPointsToSpend.value, maxLoyaltySpend.value)
+}
+
+const setStandingQuantityFromEvent = (element: BookingLayoutElement, event: Event) => {
+  setStandingQuantity(element, (event.target as HTMLInputElement | null)?.value ?? 1)
 }
 
 const redirectToCheckout = (booking: UserBooking) => {
@@ -239,6 +372,7 @@ const redirectToCheckout = (booking: UserBooking) => {
       JSON.stringify({
         bookingId: booking.id,
         userId: booking.user_id,
+        guestToken: booking.guest_access_token ?? null,
         createdAt: new Date().toISOString(),
       }),
     )
@@ -272,6 +406,8 @@ const submitBooking = async () => {
     emit('booked', response.booking)
 
     selectedElementId.value = null
+    selectedElementIds.value = []
+    standingQuantities.value = {}
     await loadAvailability({ preserveFeedback: true, preserveSelection: false })
   } catch (requestError) {
     bookingError.value = extractErrorMessage(requestError, 'Не удалось создать бронь.')
@@ -292,7 +428,9 @@ const submitPurchase = async () => {
   bookingSuccess.value = ''
 
   try {
-    const response = await createPurchaseRequest(payload)
+    const response = authStore.isAuthenticated
+      ? await createPurchaseRequest(payload)
+      : await createGuestPurchaseRequest(payload)
 
     latestBooking.value = response.booking
     bookingSuccess.value = 'Переадресуем на защищенную страницу оплаты...'
@@ -344,11 +482,17 @@ watch(
       bookingError.value = ''
       bookingSuccess.value = ''
       selectedElementId.value = null
+      selectedElementIds.value = []
+      standingQuantities.value = {}
       latestBooking.value = null
+      guestEmail.value = ''
+      guestBirthDate.value = ''
+      loyaltyPointsToSpend.value = 0
       return
     }
 
     void loadAvailability()
+    void loadLoyalty()
     startAutoRefresh()
   },
   { immediate: true },
@@ -437,7 +581,8 @@ onBeforeUnmount(() => {
               <BookingHallCanvas
                 :layout="layout"
                 :selected-element-id="selectedElementId"
-                @select="selectedElementId = $event"
+                :selected-element-ids="selectedElementIds"
+                @select="selectElement"
               />
             </div>
           </div>
@@ -485,19 +630,55 @@ onBeforeUnmount(() => {
               <article class="soft-card">
                 <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Выбор</p>
 
-                <template v-if="selectedElement">
-                  <p class="mt-3 text-xl font-semibold text-slate-950">
-                    {{ selectionLabel }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    {{ selectedElement.type === 'dancefloor' ? 'Один билет на танцпол' : 'Одно конкретное место на схеме' }}
-                  </p>
-                  <p v-if="selectedElement.type === 'dancefloor'" class="mt-2 text-sm text-slate-500">
-                    Осталось {{ selectedElement.capacity_available ?? 0 }} из {{ selectedElement.capacity_total ?? 0 }}
-                  </p>
-                  <p class="mt-4 text-3xl font-semibold text-slate-950">
-                    {{ selectedPrice !== null ? formatPrice(selectedPrice) : 'Цена уточняется' }}
-                  </p>
+                <template v-if="selectedElements.length > 0">
+                  <div class="mt-4 space-y-3">
+                    <div
+                      v-for="element in selectedElements"
+                      :key="element.id"
+                      class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4"
+                    >
+                      <div class="flex items-start justify-between gap-3">
+                        <div>
+                          <p class="font-semibold text-slate-950">
+                            {{ element.label || (element.type === 'dancefloor' ? 'Танцпол' : 'Место') }}
+                          </p>
+                          <p class="mt-1 text-sm text-slate-500">
+                            {{ element.type === 'dancefloor' ? 'Билеты без места' : 'Конкретное место на схеме' }}
+                          </p>
+                        </div>
+                        <p class="text-sm font-semibold text-blue-700">
+                          {{ formatPrice(elementPrice(element)) }}
+                        </p>
+                      </div>
+
+                      <div v-if="element.type === 'dancefloor'" class="mt-3">
+                        <label class="field-label" :for="`standing-${element.id}`">
+                          Количество билетов, доступно {{ element.capacity_available ?? 0 }}
+                        </label>
+                        <input
+                          :id="`standing-${element.id}`"
+                          :value="standingQuantities[element.id] ?? 1"
+                          type="number"
+                          min="1"
+                          :max="Number(element.capacity_available ?? 1)"
+                          class="field-input"
+                          @input="setStandingQuantityFromEvent(element, $event)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mt-5 rounded-[1.5rem] border border-blue-100 bg-blue-50/70 px-4 py-4">
+                    <p class="text-sm text-blue-900">
+                      Выбрано билетов: <span class="font-semibold">{{ selectedTicketsCount }}</span>
+                    </p>
+                    <p class="mt-2 text-3xl font-semibold text-slate-950">
+                      {{ formatPrice(payableTotal) }}
+                    </p>
+                    <p v-if="normalizedLoyaltySpend > 0" class="mt-2 text-sm text-blue-900">
+                      Скидка баллами: {{ formatPrice(normalizedLoyaltySpend) }} из {{ formatPrice(selectedTotal) }}
+                    </p>
+                  </div>
                 </template>
 
                 <template v-else>
@@ -508,16 +689,59 @@ onBeforeUnmount(() => {
                 </template>
               </article>
 
+              <article v-if="authStore.isAuthenticated" class="soft-card">
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Бонусные баллы</p>
+
+                <div v-if="loyaltyLoading" class="mt-3 text-sm text-slate-500">
+                  Загружаем баланс...
+                </div>
+                <template v-else>
+                  <p class="mt-3 text-sm leading-6 text-slate-500">
+                    Доступно: <span class="font-semibold text-slate-950">{{ loyaltyAccount?.balance ?? 0 }}</span> баллов.
+                    Можно оплатить до {{ loyaltyAccount?.max_discount_percent ?? 80 }}% заказа.
+                  </p>
+                  <input
+                    v-model.number="loyaltyPointsToSpend"
+                    type="number"
+                    min="0"
+                    :max="maxLoyaltySpend"
+                    class="field-input mt-4"
+                    placeholder="Сколько баллов списать"
+                  />
+                  <p class="mt-2 text-xs leading-5 text-slate-500">
+                    Максимум для текущего выбора: {{ maxLoyaltySpend }}. После оплаты начислим {{ loyaltyToEarn }} баллов.
+                  </p>
+                </template>
+              </article>
+
+              <article v-else class="soft-card">
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Покупка без аккаунта</p>
+                <p class="mt-3 text-sm leading-6 text-slate-500">
+                  Укажи email и дату рождения. После оплаты PDF-билет отправится на почту, а страница оплаты откроется по защищенному гостевому токену.
+                </p>
+
+                <div class="mt-4 grid gap-3">
+                  <input
+                    v-model="guestEmail"
+                    type="email"
+                    class="field-input"
+                    placeholder="Email для билета"
+                  />
+                  <input
+                    v-model="guestBirthDate"
+                    type="date"
+                    class="field-input"
+                    placeholder="Дата рождения"
+                  />
+                </div>
+              </article>
+
               <div v-if="bookingSuccess" class="message-success">
                 {{ bookingSuccess }}
               </div>
 
               <div v-if="bookingError" class="message-error">
                 {{ bookingError }}
-              </div>
-
-              <div v-if="!authStore.isAuthenticated" class="message-error">
-                Чтобы оформить бронь или перейти к оплате, сначала войдите в аккаунт.
               </div>
 
               <div class="grid gap-3">
@@ -530,13 +754,14 @@ onBeforeUnmount(() => {
                   {{
                     purchaseLoading
                       ? 'Переходим к оплате...'
-                      : selectedPrice !== null
-                        ? `Купить сейчас за ${formatPrice(selectedPrice)}`
+                      : selectedElements.length > 0
+                        ? `Купить сейчас за ${formatPrice(payableTotal)}`
                         : 'Купить сейчас'
                   }}
                 </button>
 
                 <button
+                  v-if="authStore.isAuthenticated"
                   type="button"
                   class="secondary-button w-full"
                   :disabled="!canCreateBooking"
@@ -545,8 +770,8 @@ onBeforeUnmount(() => {
                   {{
                     reserveLoading
                       ? 'Создаем бронь...'
-                      : selectedPrice !== null
-                        ? `Забронировать за ${formatPrice(selectedPrice)}`
+                      : selectedElements.length > 0
+                        ? `Забронировать за ${formatPrice(selectedTotal)}`
                         : 'Забронировать'
                   }}
                 </button>

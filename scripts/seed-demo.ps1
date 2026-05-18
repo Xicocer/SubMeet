@@ -15,11 +15,21 @@ $services = @(
 foreach ($service in $services) {
     $workdir = Join-Path $rootDir $service.Path
 
-    Write-Host ("Seeding {0}..." -f $service.Name) -ForegroundColor Cyan
+    Write-Host ("Migrating {0}..." -f $service.Name) -ForegroundColor Cyan
 
     Push-Location $workdir
     try {
+        php artisan migrate --force
+        if ($LASTEXITCODE -ne 0) {
+            throw ("Migration failed for {0}." -f $service.Name)
+        }
+
+        Write-Host ("Seeding {0}..." -f $service.Name) -ForegroundColor Cyan
+
         php artisan db:seed --force
+        if ($LASTEXITCODE -ne 0) {
+            throw ("Seeding failed for {0}." -f $service.Name)
+        }
     } finally {
         Pop-Location
     }
@@ -31,7 +41,13 @@ Write-Host 'Demo accounts:' -ForegroundColor Green
 Write-Host ' - admin@submeet.local / Password123!' -ForegroundColor Yellow
 Write-Host ' - anna@submeet.local / Password123!' -ForegroundColor Yellow
 Write-Host ' - nikita@submeet.local / Password123!' -ForegroundColor Yellow
+Write-Host ' - olga@submeet.local / Password123!' -ForegroundColor Yellow
+Write-Host '   Loyalty demo: Anna has 2110 points after seeded purchases, Nikita has 2285, Olga has 350.' -ForegroundColor DarkYellow
 Write-Host ' - dkh@submeet.local / Password123! (approved organizer)' -ForegroundColor Yellow
 Write-Host ' - milo@submeet.local / Password123! (approved organizer)' -ForegroundColor Yellow
 Write-Host ' - citylight@submeet.local / Password123! (pending organizer)' -ForegroundColor Yellow
 Write-Host ' - oldarena@submeet.local / Password123! (blocked organizer)' -ForegroundColor Yellow
+Write-Host ' - arena@submeet.local / Password123! (approved venue owner)' -ForegroundColor Yellow
+Write-Host ' - roof@submeet.local / Password123! (approved venue owner)' -ForegroundColor Yellow
+Write-Host ' - loft@submeet.local / Password123! (pending venue owner)' -ForegroundColor Yellow
+Write-Host ' - closedhall@submeet.local / Password123! (blocked venue owner)' -ForegroundColor Yellow

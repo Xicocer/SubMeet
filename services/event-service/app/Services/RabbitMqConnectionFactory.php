@@ -10,6 +10,10 @@ class RabbitMqConnectionFactory
     {
         $previousErrorReporting = error_reporting();
         error_reporting($previousErrorReporting & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+        $keepalive = (bool) config('rabbitmq.keepalive', true)
+            && function_exists('socket_import_stream')
+            && defined('SOL_SOCKET')
+            && defined('SO_KEEPALIVE');
 
         try {
             return new AMQPStreamConnection(
@@ -21,9 +25,8 @@ class RabbitMqConnectionFactory
                 connection_timeout: (float) config('rabbitmq.connection_timeout', 3.0),
                 read_write_timeout: (float) config('rabbitmq.read_write_timeout', 120.0),
                 context: null,
-                keepalive: (bool) config('rabbitmq.keepalive', true),
+                keepalive: $keepalive,
                 heartbeat: (int) config('rabbitmq.heartbeat', 60),
-                channel_rpc_timeout: (float) config('rabbitmq.channel_rpc_timeout', 120.0),
             );
         } finally {
             error_reporting($previousErrorReporting);

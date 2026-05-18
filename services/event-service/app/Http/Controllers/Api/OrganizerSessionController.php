@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventSession;
 use App\Services\BookingServiceClient;
+use App\Services\EventTeaserService;
 use App\Services\HallServiceClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +19,7 @@ class OrganizerSessionController extends Controller
     public function __construct(
         private readonly HallServiceClient $hallServiceClient,
         private readonly BookingServiceClient $bookingServiceClient,
+        private readonly EventTeaserService $teaserService,
     ) {
     }
 
@@ -25,14 +27,13 @@ class OrganizerSessionController extends Controller
     {
         $organizer = $request->attributes->get('auth_user');
         $event = $this->findOrganizerEventOrFail($eventId, $organizer['id']);
-        $token = $this->requireBearerToken($request);
 
         $sessions = EventSession::query()
             ->where('event_id', $event->id)
             ->orderBy('start_time')
             ->get();
 
-        $hallMap = $this->loadOrganizerHallMap($token, $sessions->pluck('hall_id')->all());
+        $hallMap = $this->loadPublicHallMap($sessions->pluck('hall_id')->all());
 
         return response()->json(
             $sessions->map(
@@ -50,29 +51,40 @@ class OrganizerSessionController extends Controller
         $token = $this->requireBearerToken($request);
 
         $validated = $request->validate([
-            'hall_id' => ['required', 'integer', 'min:1'],
-            'start_time' => ['required', 'date'],
-            'end_time' => ['required', 'date', 'after:start_time'],
+            'hall_rental_request_id' => ['required', 'integer', 'min:1'],
             'base_price' => ['required', 'numeric', 'min:0'],
         ]);
 
         $event = $this->findOrganizerEventOrFail($eventId, $organizer['id']);
-        $hall = $this->resolveOrganizerHallOrFail($token, (int) $validated['hall_id']);
+        $this->ensureEventCanReceiveSessions($event);
+
+        $rentalRequest = $this->resolveApprovedRentalRequestOrFail(
+            $token,
+            (int) $validated['hall_rental_request_id'],
+            $event->id,
+            (int) $organizer['id'],
+        );
+        $hall = $this->resolvePublicHallOrFail((int) ($rentalRequest['hall_id'] ?? 0));
+        $startTime = (string) ($rentalRequest['requested_start'] ?? '');
+        $endTime = (string) ($rentalRequest['requested_end'] ?? '');
 
         $this->ensureNoHallOverlap(
-            hallId: (int) $validated['hall_id'],
-            startTime: (string) $validated['start_time'],
-            endTime: (string) $validated['end_time'],
+            hallId: (int) ($rentalRequest['hall_id'] ?? 0),
+            startTime: $startTime,
+            endTime: $endTime,
         );
 
         $session = EventSession::query()->create([
             'event_id' => $event->id,
-            'hall_id' => $validated['hall_id'],
-            'start_time' => $validated['start_time'],
-            'end_time' => $validated['end_time'],
+            'hall_id' => (int) ($rentalRequest['hall_id'] ?? 0),
+            'hall_rental_request_id' => (int) $validated['hall_rental_request_id'],
+            'start_time' => $startTime,
+            'end_time' => $endTime,
             'base_price' => $validated['base_price'],
             'status' => EventSession::STATUS_SCHEDULED,
         ]);
+
+        $this->teaserService->sync($event->fresh(['tags']));
 
         return response()->json([
             'message' => 'Session created successfully.',
@@ -86,13 +98,14 @@ class OrganizerSessionController extends Controller
         $token = $this->requireBearerToken($request);
 
         $validated = $request->validate([
-            'hall_id' => ['required', 'integer', 'min:1'],
-            'start_time' => ['required', 'date'],
-            'end_time' => ['required', 'date', 'after:start_time'],
+            'hall_rental_request_id' => ['required', 'integer', 'min:1'],
             'base_price' => ['required', 'numeric', 'min:0'],
         ]);
 
         $session = $this->findOrganizerSessionOrFail($id, $organizer['id']);
+        $event = $session->event;
+        $this->ensureEventCanReceiveSessions($event);
+
         $impact = $this->loadSessionBookingImpact($token, $session->id);
 
         if ($this->hasProtectedBookings($impact)) {
@@ -101,21 +114,33 @@ class OrganizerSessionController extends Controller
             ]);
         }
 
-        $hall = $this->resolveOrganizerHallOrFail($token, (int) $validated['hall_id']);
+        $rentalRequest = $this->resolveApprovedRentalRequestOrFail(
+            $token,
+            (int) $validated['hall_rental_request_id'],
+            $session->event_id,
+            (int) $organizer['id'],
+            $session->id,
+        );
+        $hall = $this->resolvePublicHallOrFail((int) ($rentalRequest['hall_id'] ?? 0));
+        $startTime = (string) ($rentalRequest['requested_start'] ?? '');
+        $endTime = (string) ($rentalRequest['requested_end'] ?? '');
 
         $this->ensureNoHallOverlap(
-            hallId: (int) $validated['hall_id'],
-            startTime: (string) $validated['start_time'],
-            endTime: (string) $validated['end_time'],
+            hallId: (int) ($rentalRequest['hall_id'] ?? 0),
+            startTime: $startTime,
+            endTime: $endTime,
             ignoreSessionId: $session->id,
         );
 
         $session->update([
-            'hall_id' => $validated['hall_id'],
-            'start_time' => $validated['start_time'],
-            'end_time' => $validated['end_time'],
+            'hall_id' => (int) ($rentalRequest['hall_id'] ?? 0),
+            'hall_rental_request_id' => (int) $validated['hall_rental_request_id'],
+            'start_time' => $startTime,
+            'end_time' => $endTime,
             'base_price' => $validated['base_price'],
         ]);
+
+        $this->teaserService->sync($event->fresh(['tags']));
 
         return response()->json([
             'message' => 'Session updated successfully.',
@@ -136,15 +161,21 @@ class OrganizerSessionController extends Controller
             ]);
         }
 
-        $hall = $this->loadOrganizerHallMap($token, [$session->hall_id]);
+        $hall = $this->loadPublicHallMap([$session->hall_id]);
 
         $session->update([
             'status' => EventSession::STATUS_CANCELLED,
         ]);
 
+        $freshSession = $session->fresh(['event.tags']);
+
+        if ($freshSession?->event instanceof Event) {
+            $this->teaserService->sync($freshSession->event);
+        }
+
         return response()->json([
             'message' => 'Session cancelled.',
-            'session' => $this->transformSession($session->fresh(), $hall[$session->hall_id] ?? null),
+            'session' => $this->transformSession($freshSession, $hall[$session->hall_id] ?? null),
         ]);
     }
 
@@ -187,6 +218,17 @@ class OrganizerSessionController extends Controller
         }
     }
 
+    private function ensureEventCanReceiveSessions(Event $event): void
+    {
+        if ($event->status === Event::STATUS_PUBLISHED) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'event' => ['Сеансы можно создавать и редактировать только после публикации события администратором. Пока событие не опубликовано, оно остается в подготовке.'],
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -222,34 +264,72 @@ class OrganizerSessionController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function resolveOrganizerHallOrFail(string $token, int $hallId): array
+    private function resolveApprovedRentalRequestOrFail(
+        string $token,
+        int $requestId,
+        int $eventId,
+        int $organizerId,
+        ?int $ignoreSessionId = null,
+    ): array
     {
         try {
-            $hall = $this->hallServiceClient->getOrganizerHall($token, $hallId);
+            $rentalRequest = $this->hallServiceClient->getOrganizerRentalRequest($token, $requestId);
         } catch (ConnectionException $exception) {
             throw new ServiceUnavailableHttpException(null, 'Hall service is unavailable.', $exception);
         }
 
-        if ($hall === null) {
+        if ($rentalRequest === null) {
             throw ValidationException::withMessages([
-                'hall_id' => ['Hall does not exist or does not belong to the current organizer.'],
+                'hall_rental_request_id' => ['Rental request was not found for the current organizer.'],
             ]);
         }
 
-        return $hall;
+        if ((int) ($rentalRequest['organizer_id'] ?? 0) !== $organizerId) {
+            throw ValidationException::withMessages([
+                'hall_rental_request_id' => ['Rental request belongs to another organizer.'],
+            ]);
+        }
+
+        if ((int) ($rentalRequest['event_id'] ?? 0) !== $eventId) {
+            throw ValidationException::withMessages([
+                'hall_rental_request_id' => ['Rental request is linked to another event.'],
+            ]);
+        }
+
+        if (($rentalRequest['status'] ?? null) !== 'approved') {
+            throw ValidationException::withMessages([
+                'hall_rental_request_id' => ['Only approved venue rental requests can be converted into sessions.'],
+            ]);
+        }
+
+        $existingSessionQuery = EventSession::query()
+            ->where('hall_rental_request_id', $requestId)
+            ->where('status', '!=', EventSession::STATUS_CANCELLED);
+
+        if ($ignoreSessionId !== null) {
+            $existingSessionQuery->whereKeyNot($ignoreSessionId);
+        }
+
+        if ($existingSessionQuery->exists()) {
+            throw ValidationException::withMessages([
+                'hall_rental_request_id' => ['A session has already been created for this approved rental request.'],
+            ]);
+        }
+
+        return $rentalRequest;
     }
 
     /**
      * @param  array<int, int>  $hallIds
      * @return array<int, array<string, mixed>>
      */
-    private function loadOrganizerHallMap(string $token, array $hallIds): array
+    private function loadPublicHallMap(array $hallIds): array
     {
         $hallMap = [];
 
         try {
             foreach (array_unique($hallIds) as $hallId) {
-                $hall = $this->hallServiceClient->getOrganizerHall($token, (int) $hallId);
+                $hall = $this->hallServiceClient->getHall((int) $hallId);
 
                 if ($hall !== null) {
                     $hallMap[(int) $hallId] = $this->transformHallSummary($hall);
@@ -260,6 +340,26 @@ class OrganizerSessionController extends Controller
         }
 
         return $hallMap;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolvePublicHallOrFail(int $hallId): array
+    {
+        try {
+            $hall = $this->hallServiceClient->getHall($hallId);
+        } catch (ConnectionException $exception) {
+            throw new ServiceUnavailableHttpException(null, 'Hall service is unavailable.', $exception);
+        }
+
+        if ($hall === null) {
+            throw ValidationException::withMessages([
+                'hall_rental_request_id' => ['The linked hall was not found or is unavailable.'],
+            ]);
+        }
+
+        return $hall;
     }
 
     /**
@@ -277,8 +377,9 @@ class OrganizerSessionController extends Controller
             'name' => $hall['name'] ?? null,
             'address' => $hall['address'] ?? null,
             'description' => $hall['description'] ?? null,
-            'organizer_id' => $hall['organizer_id'] ?? null,
+            'venue_owner_id' => $hall['venue_owner_id'] ?? null,
             'status' => $hall['status'] ?? null,
+            'hourly_rate' => $hall['hourly_rate'] ?? null,
             'capacities' => $hall['capacities'] ?? null,
             'layout_meta' => $hall['layout_meta'] ?? null,
         ];
@@ -294,6 +395,7 @@ class OrganizerSessionController extends Controller
             'id' => $session->id,
             'event_id' => $session->event_id,
             'hall_id' => $session->hall_id,
+            'hall_rental_request_id' => $session->hall_rental_request_id,
             'hall' => $hall,
             'start_time' => $session->start_time?->toISOString(),
             'end_time' => $session->end_time?->toISOString(),

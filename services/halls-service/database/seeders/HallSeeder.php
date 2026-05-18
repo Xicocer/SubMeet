@@ -3,55 +3,64 @@
 namespace Database\Seeders;
 
 use App\Models\Hall;
+use App\Models\HallRentalRequest;
 use Illuminate\Database\Seeder;
 
 class HallSeeder extends Seeder
 {
     public function run(): void
     {
+        HallRentalRequest::query()->delete();
+        Hall::query()->delete();
+
         $halls = [
             [
                 'id' => 2101,
-                'organizer_id' => 1101,
-                'name' => 'Крыша ДКХ',
+                'venue_owner_id' => 1152,
+                'name' => 'Крыша на Покровке',
                 'address' => 'Нижний Новгород, ул. Большая Покровская, 18',
-                'description' => 'Открытая концертная площадка на крыше с видом на центр города.',
+                'description' => 'Открытая концертная площадка на крыше для летних концертов, dj-сетов и камерных фестивалей.',
+                'hourly_rate' => 18000,
                 'layout' => $this->buildRooftopConcertLayout(),
                 'status' => Hall::STATUS_ACTIVE,
             ],
             [
                 'id' => 2102,
-                'organizer_id' => 1102,
+                'venue_owner_id' => 1151,
                 'name' => 'Standup Hall',
                 'address' => 'Нижний Новгород, ул. Рождественская, 22',
-                'description' => 'Камерная площадка для стендапа, камерных шоу и живых интервью.',
+                'description' => 'Камерная площадка для стендапа, открытых микрофонов и небольших концертов.',
+                'hourly_rate' => 14000,
                 'layout' => $this->buildComedyHallLayout(),
                 'status' => Hall::STATUS_ACTIVE,
             ],
             [
                 'id' => 2103,
-                'organizer_id' => 1101,
+                'venue_owner_id' => 1151,
                 'name' => 'Black Box Arena',
                 'address' => 'Нижний Новгород, ул. Варварская, 9',
-                'description' => 'Трансформируемая сцена для иммерсивных и камерных театральных событий.',
+                'description' => 'Трансформируемая black box сцена для театра, перформансов и иммерсивных шоу.',
+                'hourly_rate' => 22000,
                 'layout' => $this->buildBlackBoxLayout(),
                 'status' => Hall::STATUS_ACTIVE,
             ],
             [
                 'id' => 2104,
-                'organizer_id' => 1102,
+                'venue_owner_id' => 1152,
                 'name' => 'Digital Pavilion',
                 'address' => 'Нижний Новгород, Нижне-Волжская набережная, 3',
-                'description' => 'Выставочный павильон для digital-экспозиций и фестивальных форматов.',
+                'description' => 'Павильон для выставок, digital-экспозиций и дневных фестивальных форматов.',
+                'hourly_rate' => 26000,
                 'layout' => $this->buildExhibitionLayout(),
-                'status' => Hall::STATUS_DRAFT,
+                'status' => Hall::STATUS_ACTIVE,
             ],
             [
                 'id' => 2105,
-                'organizer_id' => 1101,
+                'venue_owner_id' => 1151,
                 'name' => 'Архивная сцена',
                 'address' => 'Нижний Новгород, ул. Пискунова, 11',
-                'description' => 'Архивная площадка для старых постановок и офлайн-репетиций.',
+                'description' => 'Небольшая архивная площадка, временно выведенная из оборота.',
+                'hourly_rate' => 9000,
                 'layout' => $this->buildSmallStageLayout(),
                 'status' => Hall::STATUS_ARCHIVED,
             ],
@@ -60,21 +69,20 @@ class HallSeeder extends Seeder
         foreach ($halls as $hallData) {
             $capacities = $this->countCapacities($hallData['layout']['elements']);
 
-            Hall::query()->updateOrCreate(
-                ['id' => $hallData['id']],
-                [
-                    'organizer_id' => $hallData['organizer_id'],
-                    'name' => $hallData['name'],
-                    'address' => $hallData['address'],
-                    'description' => $hallData['description'],
-                    'layout' => $hallData['layout'],
-                    'seat_capacity' => $capacities['seat'],
-                    'vip_capacity' => $capacities['vip'],
-                    'dancefloor_capacity' => $capacities['dancefloor'],
-                    'total_capacity' => $capacities['total'],
-                    'status' => $hallData['status'],
-                ]
-            );
+            Hall::query()->create([
+                'id' => $hallData['id'],
+                'venue_owner_id' => $hallData['venue_owner_id'],
+                'name' => $hallData['name'],
+                'address' => $hallData['address'],
+                'description' => $hallData['description'],
+                'hourly_rate' => $hallData['hourly_rate'],
+                'layout' => $hallData['layout'],
+                'seat_capacity' => $capacities['seat'],
+                'vip_capacity' => $capacities['vip'],
+                'dancefloor_capacity' => $capacities['dancefloor'],
+                'total_capacity' => $capacities['total'],
+                'status' => $hallData['status'],
+            ]);
         }
     }
 
@@ -120,7 +128,7 @@ class HallSeeder extends Seeder
             ],
             'elements' => [
                 ['id' => 'stage-main', 'type' => 'stage', 'label' => 'Главная сцена', 'x' => 340, 'y' => 48, 'width' => 280, 'height' => 96],
-                ['id' => 'dancefloor-main', 'type' => 'dancefloor', 'x' => 340, 'y' => 160, 'width' => 280, 'height' => 170, 'capacity' => 80, 'level_id' => null],
+                ['id' => 'dancefloor-main', 'type' => 'dancefloor', 'label' => 'Танцпол', 'x' => 340, 'y' => 160, 'width' => 280, 'height' => 170, 'capacity' => 80, 'level_id' => null],
                 ['id' => 'seat-a1', 'type' => 'seat', 'label' => 'A-1', 'x' => 340, 'y' => 350, 'width' => 42, 'height' => 42, 'row' => 'A', 'number' => '1', 'level_id' => 'parter'],
                 ['id' => 'seat-a2', 'type' => 'seat', 'label' => 'A-2', 'x' => 400, 'y' => 350, 'width' => 42, 'height' => 42, 'row' => 'A', 'number' => '2', 'level_id' => 'parter'],
                 ['id' => 'seat-a3', 'type' => 'seat', 'label' => 'A-3', 'x' => 460, 'y' => 350, 'width' => 42, 'height' => 42, 'row' => 'A', 'number' => '3', 'level_id' => 'parter'],
@@ -196,7 +204,7 @@ class HallSeeder extends Seeder
             ],
             'elements' => [
                 ['id' => 'stage-talks', 'type' => 'stage', 'label' => 'Talk Stage', 'x' => 310, 'y' => 70, 'width' => 340, 'height' => 90],
-                ['id' => 'dancefloor-expo', 'type' => 'dancefloor', 'x' => 300, 'y' => 210, 'width' => 360, 'height' => 180, 'capacity' => 120, 'level_id' => 'expo'],
+                ['id' => 'dancefloor-expo', 'type' => 'dancefloor', 'label' => 'Open Zone', 'x' => 300, 'y' => 210, 'width' => 360, 'height' => 180, 'capacity' => 120, 'level_id' => 'expo'],
                 ['id' => 'seat-g1', 'type' => 'seat', 'label' => 'G-1', 'x' => 280, 'y' => 450, 'width' => 42, 'height' => 42, 'row' => 'G', 'number' => '1', 'level_id' => 'expo'],
                 ['id' => 'seat-g2', 'type' => 'seat', 'label' => 'G-2', 'x' => 340, 'y' => 450, 'width' => 42, 'height' => 42, 'row' => 'G', 'number' => '2', 'level_id' => 'expo'],
                 ['id' => 'seat-g3', 'type' => 'seat', 'label' => 'G-3', 'x' => 400, 'y' => 450, 'width' => 42, 'height' => 42, 'row' => 'G', 'number' => '3', 'level_id' => 'expo'],

@@ -64,11 +64,11 @@ const handlePhoneInput = (event: Event) => {
     <div class="grid lg:grid-cols-[0.96fr_1.04fr]">
       <div class="border-b border-white/10 bg-slate-950 px-8 py-10 text-white lg:border-b-0 lg:border-r lg:px-10">
         <h2 class="mt-5 text-4xl font-semibold leading-tight">
-          Регистрация организатора для площадок, клубов и компаний.
+          Регистрация организатора для команд, продюсеров и авторов событий.
         </h2>
         <p class="mt-4 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
-          Создай отдельный аккаунт компании, чтобы управлять залами, событиями и расписанием
-          сеансов из кабинета организатора.
+          Этот аккаунт нужен тому, кто создает само мероприятие: собирает карточку события,
+          описывает программу и отправляет заявки на аренду площадок под нужные даты.
         </p>
       </div>
 
@@ -76,7 +76,8 @@ const handlePhoneInput = (event: Event) => {
         <div class="mb-8">
           <h3 class="text-2xl font-semibold text-slate-950">Зарегистрировать организатора</h3>
           <p class="mt-2 text-sm leading-6 text-slate-500">
-            Укажи название компании и контактное лицо. После регистрации кабинет откроется сразу.
+            Укажи название команды или бренда и контактное лицо. После одобрения такой аккаунт
+            сможет публиковать события и запрашивать площадки для проведения.
           </p>
         </div>
 
@@ -90,13 +91,13 @@ const handlePhoneInput = (event: Event) => {
 
         <form class="grid gap-5 sm:grid-cols-2" @submit.prevent="registerOrganizer">
           <div class="sm:col-span-2">
-            <label class="field-label" for="organizer-company-name">Название компании</label>
+            <label class="field-label" for="organizer-company-name">Название команды или бренда</label>
             <input
               id="organizer-company-name"
               v-model="form.company_name"
               type="text"
               class="field-input"
-              placeholder="Milo Concert Hall"
+              placeholder="Milo Concert Team"
             />
           </div>
 
@@ -170,8 +171,8 @@ const handlePhoneInput = (event: Event) => {
               <RouterLink class="font-semibold text-sky-700 hover:text-sky-800" to="/login">
                 Уже есть аккаунт? Войти
               </RouterLink>
-              <RouterLink class="font-semibold text-slate-500 hover:text-slate-700" to="/register">
-                Нужен обычный пользователь? Открыть стандартную регистрацию
+              <RouterLink class="font-semibold text-slate-500 hover:text-slate-700" to="/register/venue">
+                Есть своя площадка? Зарегистрировать владельца зала
               </RouterLink>
             </div>
 

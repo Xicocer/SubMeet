@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Booking;
 use App\Services\BookingService;
+use App\Services\TicketEmailService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -27,7 +28,7 @@ class IssueTicketDocumentJob implements ShouldQueue
         $this->onQueue((string) config('booking.ticket_queue_name', 'tickets'));
     }
 
-    public function handle(BookingService $bookingService): void
+    public function handle(BookingService $bookingService, TicketEmailService $ticketEmailService): void
     {
         $booking = Booking::query()
             ->with(['snapshot', 'items.seat', 'items.standingArea', 'payment'])
@@ -37,6 +38,7 @@ class IssueTicketDocumentJob implements ShouldQueue
             return;
         }
 
-        $bookingService->ensureTicketIssued($booking);
+        $issuedBooking = $bookingService->ensureTicketIssued($booking);
+        $ticketEmailService->sendTicket($issuedBooking);
     }
 }

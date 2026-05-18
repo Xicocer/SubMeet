@@ -11,8 +11,10 @@ use App\Http\Controllers\Api\EventAssistantChatController;
 use App\Http\Controllers\Api\EventAssistantConversationController;
 use App\Http\Controllers\Api\EventAssistantController;
 use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\InternalHallUsageController;
 use App\Http\Controllers\Api\InternalRecommendationController;
 use App\Http\Controllers\Api\OrganizerDashboardController;
+use App\Http\Controllers\Api\OrganizerEventCopywriterController;
 use App\Http\Controllers\Api\OrganizerEventController;
 use App\Http\Controllers\Api\OrganizerHallUsageController;
 use App\Http\Controllers\Api\OrganizerSessionController;
@@ -36,6 +38,10 @@ Route::middleware('internal.api')->prefix('internal/recommendations')->group(fun
     Route::get('/interactions', [InternalRecommendationController::class, 'interactions']);
 });
 
+Route::middleware('internal.api')->prefix('internal/halls')->group(function () {
+    Route::get('/{id}/usage', InternalHallUsageController::class);
+});
+
 Route::middleware('api.auth')->group(function () {
     Route::get('/me/want-to-go', [WantToGoController::class, 'index']);
     Route::post('/events/{id}/want-to-go', [WantToGoController::class, 'store']);
@@ -47,6 +53,7 @@ Route::middleware('api.auth')->group(function () {
 Route::middleware('organizer.auth')->prefix('organizer')->group(function () {
     Route::get('/dashboard', OrganizerDashboardController::class);
     Route::get('/halls/{id}/usage', OrganizerHallUsageController::class);
+    Route::post('/events/copywriter/rewrite', [OrganizerEventCopywriterController::class, 'rewrite']);
     Route::get('/events', [OrganizerEventController::class, 'myEvents']);
     Route::post('/events', [OrganizerEventController::class, 'store']);
     Route::put('/events/{id}', [OrganizerEventController::class, 'update']);

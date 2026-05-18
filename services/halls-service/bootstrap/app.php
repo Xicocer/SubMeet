@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'organizer.auth' => \App\Http\Middleware\AuthenticateOrganizer::class,
+            'venue.auth' => \App\Http\Middleware\AuthenticateVenueOwner::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   cancelBookingRequest,
   downloadTicketRequest,
+  getLoyaltyAccountRequest,
   getMyBookingsRequest,
   payBookingRequest,
   refreshBookingPaymentRequest,
@@ -11,7 +12,7 @@ import {
 import { getWantToGoEventsRequest, removeWantToGoRequest } from '@/api/events'
 import { useAuthStore } from '@/stores/auth'
 import type { UpdateProfilePayload } from '@/types/auth'
-import type { UserBooking } from '@/types/booking'
+import type { LoyaltyAccountResponse, UserBooking } from '@/types/booking'
 import type { WantToGoEvent } from '@/types/event'
 import {
   formatDate,
@@ -36,6 +37,7 @@ const ticketDownloadIds = ref<number[]>([])
 const wantToGoActionIds = ref<number[]>([])
 const bookings = ref<UserBooking[]>([])
 const wantToGoEvents = ref<WantToGoEvent[]>([])
+const loyaltyAccount = ref<LoyaltyAccountResponse | null>(null)
 
 const form = reactive<UpdateProfilePayload>({
   full_name: '',
@@ -45,6 +47,7 @@ const form = reactive<UpdateProfilePayload>({
 })
 
 const user = computed(() => authStore.user)
+const isBusinessUser = computed(() => authStore.isOrganizer || authStore.isVenueOwner)
 const profileTitle = computed(() => {
   if (!user.value) {
     return 'Пользователь'
@@ -53,6 +56,8 @@ const profileTitle = computed(() => {
   return user.value.organizer_profile?.company_name || user.value.full_name
 })
 const initials = computed(() => getInitials(profileTitle.value))
+const businessCabinetRoute = computed(() => (authStore.isVenueOwner ? '/venue/halls' : '/organizer/events'))
+const businessCabinetLabel = computed(() => (authStore.isVenueOwner ? 'Открыть кабинет площадки' : 'Открыть кабинет организатора'))
 const roleLabel = computed(() => (authStore.isOrganizer ? 'Организатор' : 'Пользователь'))
 const statusLabel = computed(() => (user.value?.status === 1 ? 'Активен' : 'Ограничен'))
 const memberSinceLabel = computed(() => formatDate(user.value?.created_at))
@@ -66,6 +71,7 @@ const statusClasses = computed(() => (
 const reservationBookings = computed(() => bookings.value.filter((booking) => booking.status !== 'confirmed'))
 const ticketBookings = computed(() => bookings.value.filter((booking) => booking.status === 'confirmed'))
 const pendingBookings = computed(() => bookings.value.filter((booking) => ['reserved', 'payment_pending'].includes(booking.status)))
+const loyaltyBalance = computed(() => loyaltyAccount.value?.balance ?? 0)
 
 const hasChanges = computed(() => {
   if (!user.value) {
@@ -178,7 +184,7 @@ const replaceBooking = (updatedBooking: UserBooking) => {
 }
 
 const loadBookings = async () => {
-  if (authStore.isOrganizer) {
+  if (isBusinessUser.value) {
     bookings.value = []
     return
   }
@@ -198,7 +204,7 @@ const loadBookings = async () => {
 }
 
 const loadWantToGo = async () => {
-  if (authStore.isOrganizer) {
+  if (isBusinessUser.value) {
     wantToGoEvents.value = []
     return
   }
@@ -216,17 +222,32 @@ const loadWantToGo = async () => {
   }
 }
 
+const loadLoyalty = async () => {
+  if (isBusinessUser.value) {
+    loyaltyAccount.value = null
+    return
+  }
+
+  try {
+    loyaltyAccount.value = await getLoyaltyAccountRequest()
+  } catch (requestError) {
+    console.error(requestError)
+    loyaltyAccount.value = null
+  }
+}
+
 const loadCabinetData = async () => {
   cabinetError.value = ''
 
   await Promise.all([
     loadBookings(),
     loadWantToGo(),
+    loadLoyalty(),
   ])
 }
 
 const syncReturnedPayment = async () => {
-  if (authStore.isOrganizer) {
+  if (isBusinessUser.value) {
     return
   }
 
@@ -248,6 +269,7 @@ const syncReturnedPayment = async () => {
       cabinetMessage.value = response.booking.ticket
         ? 'Оплата подтверждена. Билет уже доступен для скачивания.'
         : 'Оплата подтверждена. PDF-билет еще генерируется в фоне и скоро появится в кабинете.'
+      await loadLoyalty()
     } else if (response.booking.status === 'payment_pending') {
       cabinetMessage.value = 'Платеж еще обрабатывается. Обнови страницу чуть позже.'
     } else {
@@ -295,8 +317,8 @@ const updateProfile = async () => {
     const payload: UpdateProfilePayload = {
       full_name: form.full_name,
       phone: form.phone,
-      birth_date: authStore.isOrganizer ? '' : form.birth_date,
-      ...(authStore.isOrganizer ? { company_name: form.company_name?.trim() || '' } : {}),
+      birth_date: isBusinessUser.value ? '' : form.birth_date,
+      ...(isBusinessUser.value ? { company_name: form.company_name?.trim() || '' } : {}),
     }
 
     const response = await authStore.updateProfile(payload)
@@ -315,6 +337,7 @@ const payBooking = async (bookingId: number) => {
   try {
     const response = await payBookingRequest(bookingId)
     replaceBooking(response.booking)
+    await loadLoyalty()
 
     const confirmationUrl = response.booking.payment?.confirmation_url
 
@@ -340,6 +363,7 @@ const cancelBooking = async (bookingId: number) => {
   try {
     const response = await cancelBookingRequest(bookingId)
     replaceBooking(response.booking)
+    await loadLoyalty()
     cabinetMessage.value = 'Бронь отменена, места снова доступны в продаже.'
   } catch (requestError) {
     console.error(requestError)
@@ -432,7 +456,7 @@ onMounted(loadProfile)
         <p class="mt-2 break-words text-sm leading-6 text-white/70">
           {{ user?.email || 'Email не указан' }}
         </p>
-        <p v-if="authStore.isOrganizer" class="mt-3 text-sm leading-6 text-white/70">
+        <p v-if="isBusinessUser" class="mt-3 text-sm leading-6 text-white/70">
           Контактное лицо: {{ user?.full_name || 'Не указано' }}
         </p>
       </div>
@@ -455,24 +479,32 @@ onMounted(loadProfile)
           <p class="mt-3 text-sm leading-6 text-slate-600">{{ memberSinceLabel }}</p>
         </article>
 
-        <article v-if="!authStore.isOrganizer" class="soft-card">
+        <article v-if="!isBusinessUser" class="soft-card">
           <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Хочу сходить</p>
           <p class="mt-3 text-2xl font-semibold text-slate-950">{{ wantToGoEvents.length }}</p>
         </article>
 
-        <article v-if="!authStore.isOrganizer" class="soft-card">
+        <article v-if="!isBusinessUser" class="soft-card border-blue-100 bg-blue-50/70">
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">Бонусные баллы</p>
+          <p class="mt-3 text-3xl font-semibold text-slate-950">{{ loyaltyBalance }}</p>
+          <p class="mt-2 text-sm leading-6 text-blue-900">
+            Ими можно оплатить до {{ loyaltyAccount?.max_discount_percent ?? 80 }}% следующего заказа.
+          </p>
+        </article>
+
+        <article v-if="!isBusinessUser" class="soft-card">
           <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Активные брони</p>
           <p class="mt-3 text-2xl font-semibold text-slate-950">{{ pendingBookings.length }}</p>
         </article>
 
-        <article v-if="!authStore.isOrganizer" class="soft-card">
+        <article v-if="!isBusinessUser" class="soft-card">
           <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Купленные билеты</p>
           <p class="mt-3 text-2xl font-semibold text-slate-950">{{ ticketBookings.length }}</p>
         </article>
 
         <RouterLink
-          v-if="authStore.isOrganizer"
-          to="/organizer/events"
+          v-if="isBusinessUser"
+          :to="businessCabinetRoute"
           class="secondary-button w-full"
         >
           Открыть кабинет организатора
@@ -499,7 +531,7 @@ onMounted(loadProfile)
 
           <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <article
-              v-if="authStore.isOrganizer"
+              v-if="isBusinessUser"
               class="min-w-0 rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5"
             >
               <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Компания</p>
@@ -516,7 +548,7 @@ onMounted(loadProfile)
             </article>
 
             <article
-              v-if="!authStore.isOrganizer"
+              v-if="!isBusinessUser"
               class="min-w-0 rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5"
             >
               <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Дата рождения</p>
@@ -543,7 +575,7 @@ onMounted(loadProfile)
         <form class="mt-8 grid gap-5 sm:grid-cols-2" @submit.prevent="updateProfile">
           <div class="sm:col-span-2">
             <label class="field-label" for="profile-full-name">
-              {{ authStore.isOrganizer ? 'Контактное лицо' : 'ФИО' }}
+              {{ isBusinessUser ? 'Контактное лицо' : 'ФИО' }}
             </label>
             <input
               id="profile-full-name"
@@ -551,11 +583,11 @@ onMounted(loadProfile)
               type="text"
               autocomplete="name"
               class="field-input"
-              :placeholder="authStore.isOrganizer ? 'Мария Петрова' : 'Иванов Иван Иванович'"
+              :placeholder="isBusinessUser ? 'Мария Петрова' : 'Иванов Иван Иванович'"
             />
           </div>
 
-          <div v-if="authStore.isOrganizer" class="sm:col-span-2">
+          <div v-if="isBusinessUser" class="sm:col-span-2">
             <label class="field-label" for="profile-company-name">Название компании</label>
             <input
               id="profile-company-name"
@@ -579,7 +611,7 @@ onMounted(loadProfile)
             />
           </div>
 
-          <div v-if="!authStore.isOrganizer">
+          <div v-if="!isBusinessUser">
             <label class="field-label" for="profile-birth-date">Дата рождения</label>
             <input
               id="profile-birth-date"
@@ -609,7 +641,7 @@ onMounted(loadProfile)
         </form>
       </section>
 
-      <template v-if="!authStore.isOrganizer">
+      <template v-if="!isBusinessUser">
         <div v-if="cabinetMessage" class="message-success">
           {{ cabinetMessage }}
         </div>
@@ -664,9 +696,26 @@ onMounted(loadProfile)
                   </h4>
                 </div>
 
-                <span class="status-badge border-blue-100 bg-blue-50 text-blue-700">
-                  {{ eventItem.age_rating?.label || '0+' }}
-                </span>
+                <div class="flex shrink-0 flex-col items-end gap-2">
+                  <span class="status-badge border-blue-100 bg-blue-50 text-blue-700">
+                    {{ eventItem.age_rating?.label || '0+' }}
+                  </span>
+                  <span
+                    class="status-badge"
+                    :class="eventItem.is_teaser
+                      ? 'border-amber-200 bg-amber-50 text-amber-800'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
+                  >
+                    {{ eventItem.is_teaser ? 'Тизер' : 'Билеты открыты' }}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                v-if="eventItem.is_teaser"
+                class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
+              >
+                Это тизер. Мы держим событие в списке, а когда появятся сеансы, здесь автоматически появятся дата, площадка и цена.
               </div>
 
               <p class="mt-4 text-sm leading-6 text-slate-500">
@@ -677,7 +726,10 @@ onMounted(loadProfile)
                 <span
                   v-for="tag in eventItem.tags"
                   :key="tag.id"
-                  class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+                  class="rounded-full border px-2.5 py-1 text-xs font-medium"
+                  :class="tag.slug === 'teaser'
+                    ? 'border-amber-200 bg-amber-300 text-slate-950'
+                    : 'border-slate-200 bg-slate-50 text-slate-500'"
                 >
                   #{{ tag.name }}
                 </span>
@@ -687,17 +739,17 @@ onMounted(loadProfile)
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                   <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Ближайший сеанс</p>
                   <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ eventItem.next_session ? formatDateTime(eventItem.next_session.start_time) : 'Скоро появится' }}
+                    {{ eventItem.next_session ? formatDateTime(eventItem.next_session.start_time) : (eventItem.is_teaser ? 'Ожидаем расписание' : 'Скоро появится') }}
                   </p>
                   <p class="mt-2 text-sm text-slate-500">
-                    {{ eventItem.next_session?.hall?.address || eventItem.next_session?.hall?.name || 'Площадка уточняется' }}
+                    {{ eventItem.next_session?.hall?.address || eventItem.next_session?.hall?.name || (eventItem.is_teaser ? 'Площадка еще подтверждается' : 'Площадка уточняется') }}
                   </p>
                 </div>
 
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                   <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Цена от</p>
                   <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ eventItem.minimum_price !== null ? formatPrice(eventItem.minimum_price) : 'Уточняется' }}
+                    {{ eventItem.minimum_price !== null ? formatPrice(eventItem.minimum_price) : (eventItem.is_teaser ? 'После открытия продаж' : 'Уточняется') }}
                   </p>
                   <p class="mt-2 text-sm text-slate-500">
                     Добавлено {{ formatDate(eventItem.wanted_at) }}

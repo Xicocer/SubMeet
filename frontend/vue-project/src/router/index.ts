@@ -19,6 +19,7 @@ import OrganizerRegisterView from '@/views/OrganizerRegisterView.vue'
 import OrganizerTicketVerificationView from '@/views/OrganizerTicketVerificationView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import RegisterView from '@/views/RegisterView.vue'
+import VenueRegisterView from '@/views/VenueRegisterView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -41,6 +42,7 @@ const router = createRouter({
       path: '/assistant',
       name: 'event-concierge',
       component: EventConciergeView,
+      meta: { requiresAuth: true },
     },
     {
       path: '/login',
@@ -61,6 +63,12 @@ const router = createRouter({
       meta: { publicOnly: true },
     },
     {
+      path: '/register/venue',
+      name: 'venue-register',
+      component: VenueRegisterView,
+      meta: { publicOnly: true },
+    },
+    {
       path: '/profile',
       name: 'profile',
       component: ProfileView,
@@ -70,7 +78,7 @@ const router = createRouter({
       path: '/checkout/:id',
       name: 'checkout',
       component: CheckoutView,
-      meta: { requiresAuth: true, immersive: true },
+      meta: { immersive: true },
     },
     {
       path: '/admin/dashboard',
@@ -115,28 +123,28 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresOrganizer: true },
     },
     {
-      path: '/organizer/halls',
-      name: 'organizer-halls',
-      component: OrganizerHallLibraryView,
-      meta: { requiresAuth: true, requiresOrganizer: true },
-    },
-    {
-      path: '/organizer/halls/new',
-      name: 'organizer-hall-create',
-      component: OrganizerHallsView,
-      meta: { requiresAuth: true, requiresOrganizer: true, immersive: true },
-    },
-    {
-      path: '/organizer/halls/:id/edit',
-      name: 'organizer-hall-edit',
-      component: OrganizerHallsView,
-      meta: { requiresAuth: true, requiresOrganizer: true, immersive: true },
-    },
-    {
       path: '/organizer/tickets',
       name: 'organizer-tickets',
       component: OrganizerTicketVerificationView,
       meta: { requiresAuth: true, requiresOrganizer: true },
+    },
+    {
+      path: '/venue/halls',
+      name: 'venue-halls',
+      component: OrganizerHallLibraryView,
+      meta: { requiresAuth: true, requiresVenueOwner: true },
+    },
+    {
+      path: '/venue/halls/new',
+      name: 'venue-hall-create',
+      component: OrganizerHallsView,
+      meta: { requiresAuth: true, requiresVenueOwner: true, immersive: true },
+    },
+    {
+      path: '/venue/halls/:id/edit',
+      name: 'venue-hall-edit',
+      component: OrganizerHallsView,
+      meta: { requiresAuth: true, requiresVenueOwner: true, immersive: true },
     },
   ],
 })
@@ -162,6 +170,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresOrganizer && !authStore.isOrganizer) {
+    return { name: 'events' }
+  }
+
+  if (to.meta.requiresVenueOwner && !authStore.isVenueOwner) {
     return { name: 'events' }
   }
 

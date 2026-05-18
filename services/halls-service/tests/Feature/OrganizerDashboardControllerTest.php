@@ -11,12 +11,12 @@ class OrganizerDashboardControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_dashboard_returns_hall_metrics_for_current_organizer(): void
+    public function test_dashboard_returns_hall_metrics_for_current_venue_owner(): void
     {
-        $this->fakeOrganizerAuth(77);
+        $this->fakeVenueOwnerAuth(77);
 
         $activeHall = Hall::query()->create([
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
             'name' => 'Main Arena',
             'address' => 'City Center, 1',
             'description' => 'Primary hall',
@@ -29,7 +29,7 @@ class OrganizerDashboardControllerTest extends TestCase
         ]);
 
         $draftHall = Hall::query()->create([
-            'organizer_id' => 77,
+            'venue_owner_id' => 77,
             'name' => 'Studio Hall',
             'address' => 'Riverside, 8',
             'description' => 'Small room',
@@ -50,7 +50,7 @@ class OrganizerDashboardControllerTest extends TestCase
         ])->save();
 
         Hall::query()->create([
-            'organizer_id' => 88,
+            'venue_owner_id' => 88,
             'name' => 'Foreign Hall',
             'address' => 'Other City, 4',
             'description' => 'Ignore this one',
@@ -62,8 +62,8 @@ class OrganizerDashboardControllerTest extends TestCase
             'status' => Hall::STATUS_ACTIVE,
         ]);
 
-        $this->withHeader('Authorization', 'Bearer organizer-token')
-            ->getJson('/api/organizer/dashboard')
+        $this->withHeader('Authorization', 'Bearer venue-token')
+            ->getJson('/api/venue/dashboard')
             ->assertOk()
             ->assertJsonPath('metrics.halls_total', 2)
             ->assertJsonPath('metrics.halls_active', 1)
@@ -73,16 +73,16 @@ class OrganizerDashboardControllerTest extends TestCase
             ->assertJsonPath('recent_halls.0.name', 'Studio Hall');
     }
 
-    private function fakeOrganizerAuth(int $organizerId): void
+    private function fakeVenueOwnerAuth(int $venueOwnerId): void
     {
         Http::fake([
             'http://127.0.0.1:8000/api/me' => Http::response([
                 'user' => [
-                    'id' => $organizerId,
-                    'full_name' => 'Hall Organizer',
-                    'email' => 'organizer@example.com',
+                    'id' => $venueOwnerId,
+                    'full_name' => 'Venue Owner',
+                    'email' => 'venue@example.com',
                     'role' => [
-                        'role' => 'organizer',
+                        'role' => 'venue_owner',
                     ],
                 ],
             ], 200),

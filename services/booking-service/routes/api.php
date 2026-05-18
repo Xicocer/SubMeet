@@ -15,6 +15,11 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/sessions/{id}/availability', [SessionAvailabilityController::class, 'show']);
 Route::post('/payments/webhooks/yookassa', [PaymentWebhookController::class, 'yookassa']);
+Route::post('/bookings/guest-purchase', [BookingController::class, 'guestPurchase']);
+Route::get('/guest/bookings/{id}', [BookingController::class, 'guestShow']);
+Route::post('/guest/bookings/{id}/refresh-payment', [BookingController::class, 'guestRefreshPayment']);
+Route::post('/guest/bookings/{id}/cancel', [BookingController::class, 'guestCancel']);
+Route::get('/guest/bookings/{id}/ticket', [TicketController::class, 'guestDownload']);
 
 Route::middleware('internal.api')->prefix('internal/recommendations')->group(function () {
     Route::get('/interactions', [InternalRecommendationController::class, 'interactions']);
@@ -29,6 +34,7 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/bookings/{id}/pay', [PaymentController::class, 'store']);
     Route::post('/bookings/{id}/refresh-payment', [PaymentController::class, 'refresh']);
     Route::get('/my/bookings/{id}/ticket', [TicketController::class, 'download']);
+    Route::get('/loyalty', [BookingController::class, 'loyalty']);
 });
 
 Route::middleware(['api.auth', 'api.organizer'])->prefix('organizer')->group(function () {

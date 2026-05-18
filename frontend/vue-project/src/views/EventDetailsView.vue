@@ -34,6 +34,9 @@ const canManageEvent = computed(() => {
 })
 
 const nextSession = computed(() => sessions.value[0] ?? null)
+const isTeaser = computed(() => Boolean(event.value?.is_teaser) || (
+  event.value?.has_available_sessions === false && sessions.value.length === 0
+))
 
 const minimumPrice = computed(() => {
   if (sessions.value.length === 0) {
@@ -56,6 +59,10 @@ const minimumPrice = computed(() => {
 })
 
 const sessionCountLabel = computed(() => {
+  if (isTeaser.value) {
+    return 'Тизер'
+  }
+
   if (sessions.value.length === 1) {
     return '1 открытый сеанс'
   }
@@ -205,7 +212,12 @@ watch(eventId, loadEventDetails, { immediate: true })
               <span class="status-badge border-sky-200 bg-sky-50 text-sky-700">
                 {{ event.age_rating?.label || 'Без рейтинга' }}
               </span>
-              <span class="status-badge border-emerald-200 bg-emerald-50 text-emerald-700">
+              <span
+                class="status-badge"
+                :class="isTeaser
+                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
+              >
                 {{ sessionCountLabel }}
               </span>
             </div>
@@ -214,7 +226,10 @@ watch(eventId, loadEventDetails, { immediate: true })
               <span
                 v-for="tag in event.tags"
                 :key="tag.id"
-                class="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700"
+                class="rounded-full border px-3 py-1 text-xs font-semibold"
+                :class="tag.slug === 'teaser'
+                  ? 'border-amber-200 bg-amber-300 text-slate-950'
+                  : 'border-blue-100 bg-blue-50 text-blue-700'"
               >
                 #{{ tag.name }}
               </span>
@@ -246,10 +261,10 @@ watch(eventId, loadEventDetails, { immediate: true })
                   Ближайший сеанс
                 </p>
                 <p class="mt-3 text-lg font-semibold text-slate-900">
-                  {{ nextSession ? formatDateTime(nextSession.start_time) : 'Пока нет в расписании' }}
+                  {{ nextSession ? formatDateTime(nextSession.start_time) : (isTeaser ? 'Расписание скоро' : 'Пока нет в расписании') }}
                 </p>
                 <p class="mt-2 text-sm text-slate-500">
-                  {{ nextSession ? `от ${formatPrice(nextSession.base_price)}` : 'Организатор еще не открыл продажу' }}
+                  {{ nextSession ? `от ${formatPrice(nextSession.base_price)}` : (isTeaser ? 'Добавь в “Хочу сходить”, чтобы не потерять анонс' : 'Организатор еще не открыл продажу') }}
                 </p>
               </article>
 
@@ -258,7 +273,7 @@ watch(eventId, loadEventDetails, { immediate: true })
                   Минимальная цена
                 </p>
                 <p class="mt-3 text-lg font-semibold text-slate-900">
-                  {{ minimumPrice !== null ? formatPrice(minimumPrice) : 'Скоро появится' }}
+                  {{ minimumPrice !== null ? formatPrice(minimumPrice) : (isTeaser ? 'После открытия продаж' : 'Скоро появится') }}
                 </p>
                 <p class="mt-2 text-sm text-slate-500">
                   Точная стоимость зависит от конкретного места или танцпола в выбранном сеансе.
@@ -283,9 +298,16 @@ watch(eventId, loadEventDetails, { immediate: true })
                 Вернуться в афишу
               </RouterLink>
 
-              <a href="#event-sessions" class="primary-button">
+              <a v-if="!isTeaser" href="#event-sessions" class="primary-button">
                 Выбрать сеанс
               </a>
+
+              <span
+                v-else
+                class="inline-flex items-center rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-800"
+              >
+                Расписание появится позже
+              </span>
 
               <WantToGoButton
                 v-if="!authStore.isOrganizer"
@@ -327,7 +349,10 @@ watch(eventId, loadEventDetails, { immediate: true })
                 <span
                   v-for="tag in event.tags"
                   :key="tag.id"
-                  class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-600"
+                  class="rounded-full border px-3 py-1 text-sm font-medium"
+                  :class="tag.slug === 'teaser'
+                    ? 'border-amber-200 bg-amber-300 text-slate-950'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'"
                 >
                   #{{ tag.name }}
                 </span>
@@ -357,19 +382,26 @@ watch(eventId, loadEventDetails, { immediate: true })
           <div>
             <span class="info-chip">Сеансы</span>
             <h2 class="mt-4 text-3xl font-semibold text-slate-950">
-              Доступные сеансы для выбора и бронирования
+              {{ isTeaser ? 'Событие опубликовано как тизер' : 'Доступные сеансы для выбора и бронирования' }}
             </h2>
             <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-              Открой любой актуальный сеанс и сразу перейди к финальной схеме зала с доступными местами.
+              {{ isTeaser ? 'Организатор уже анонсировал мероприятие, а точные даты, площадка и билеты появятся после подтверждения сеансов.' : 'Открой любой актуальный сеанс и сразу перейди к финальной схеме зала с доступными местами.' }}
             </p>
           </div>
 
           <div class="rounded-[1.75rem] border border-white/85 bg-white/85 px-5 py-4 shadow-sm shadow-slate-900/5">
             <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Сеансов открыто
+              {{ isTeaser ? 'Статус' : 'Сеансов открыто' }}
             </p>
-            <p class="mt-2 text-3xl font-semibold text-slate-950">{{ sessions.length }}</p>
+            <p class="mt-2 text-3xl font-semibold text-slate-950">{{ isTeaser ? 'Тизер' : sessions.length }}</p>
           </div>
+        </div>
+
+        <div
+          v-if="isTeaser"
+          class="mt-8 rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-5 text-sm leading-6 text-amber-900"
+        >
+          Это тизер: событие уже прошло публикацию, но организатор еще не открыл сеансы. Добавь его в «Хочу сходить», и в профиле будет видно, когда появится ближайшая дата и цена.
         </div>
 
         <div v-if="sessions.length > 0" class="mt-8 grid gap-4 lg:grid-cols-2">
@@ -434,9 +466,11 @@ watch(eventId, loadEventDetails, { immediate: true })
         </div>
 
         <div v-else class="mt-8 rounded-[1.75rem] border border-dashed border-slate-200 bg-slate-50/70 px-6 py-8">
-          <p class="text-lg font-semibold text-slate-900">Сеансы пока не добавлены</p>
+          <p class="text-lg font-semibold text-slate-900">
+            {{ isTeaser ? 'Расписание готовится' : 'Сеансы пока не добавлены' }}
+          </p>
           <p class="mt-2 text-sm leading-6 text-slate-500">
-            Когда организатор создаст расписание, доступные даты и цены появятся здесь автоматически.
+            {{ isTeaser ? 'Как только появится подтвержденный сеанс, карточка перестанет быть тизером и откроет покупку билетов.' : 'Когда организатор создаст расписание, доступные даты и цены появятся здесь автоматически.' }}
           </p>
         </div>
       </section>

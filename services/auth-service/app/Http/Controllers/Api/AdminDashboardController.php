@@ -13,10 +13,14 @@ class AdminDashboardController extends Controller
     public function __invoke(): JsonResponse
     {
         $organizerRoleId = Role::query()->where('role', 'organizer')->value('id');
+        $venueOwnerRoleId = Role::query()->where('role', 'venue_owner')->value('id');
 
         $usersTotal = User::query()->count();
         $organizersTotal = $organizerRoleId !== null
             ? User::query()->where('role_id', $organizerRoleId)->count()
+            : 0;
+        $venueOwnersTotal = $venueOwnerRoleId !== null
+            ? User::query()->where('role_id', $venueOwnerRoleId)->count()
             : 0;
 
         $moderationCounts = OrganizerProfile::query()
@@ -28,6 +32,7 @@ class AdminDashboardController extends Controller
             'metrics' => [
                 'users_total' => $usersTotal,
                 'organizers_total' => $organizersTotal,
+                'venue_owners_total' => $venueOwnersTotal,
                 'organizers_pending' => (int) ($moderationCounts['pending'] ?? 0),
                 'organizers_approved' => (int) ($moderationCounts['approved'] ?? 0),
                 'organizers_rejected' => (int) ($moderationCounts['rejected'] ?? 0),

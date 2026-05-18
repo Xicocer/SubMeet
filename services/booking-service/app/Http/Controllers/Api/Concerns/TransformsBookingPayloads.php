@@ -65,20 +65,28 @@ trait TransformsBookingPayloads
         ];
     }
 
-    private function transformBooking(Booking $booking): array
+    private function transformBooking(Booking $booking, bool $includeGuestAccessToken = false): array
     {
         $booking->loadMissing(['snapshot', 'items.seat', 'items.standingArea', 'payment']);
 
-        return [
+        $payload = [
             'id' => $booking->id,
             'user_id' => $booking->user_id,
+            'customer_email' => $booking->customer_email,
+            'is_guest' => $booking->user_id === null,
             'status' => $booking->status,
             'flow_type' => $booking->flow_type,
+            'subtotal_amount' => $booking->subtotal_amount,
+            'discount_amount' => $booking->discount_amount,
+            'loyalty_points_spent' => $booking->loyalty_points_spent,
+            'loyalty_points_earned' => $booking->loyalty_points_earned,
+            'loyalty_points_awarded_at' => $booking->loyalty_points_awarded_at?->toISOString(),
             'total_amount' => $booking->total_amount,
             'currency' => $booking->currency,
             'reserved_until' => $booking->reserved_until?->toISOString(),
             'confirmed_at' => $booking->confirmed_at?->toISOString(),
             'ticket_issued_at' => $booking->ticket_issued_at?->toISOString(),
+            'ticket_sent_at' => $booking->ticket_sent_at?->toISOString(),
             'ticket_used_at' => $booking->ticket_used_at?->toISOString(),
             'ticket_used_by_organizer_id' => $booking->ticket_used_by_organizer_id,
             'cancelled_at' => $booking->cancelled_at?->toISOString(),
@@ -97,6 +105,12 @@ trait TransformsBookingPayloads
             'created_at' => $booking->created_at?->toISOString(),
             'updated_at' => $booking->updated_at?->toISOString(),
         ];
+
+        if ($includeGuestAccessToken && $booking->guest_access_token !== null) {
+            $payload['guest_access_token'] = $booking->guest_access_token;
+        }
+
+        return $payload;
     }
 
     private function transformSnapshotSummary(SessionSnapshot $snapshot): array

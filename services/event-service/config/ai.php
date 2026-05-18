@@ -40,6 +40,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | HTTP
+    |--------------------------------------------------------------------------
+    |
+    | Local Windows PHP installations may not have a fresh CA bundle, which can
+    | break OpenAI-compatible gateways during demos. Keep verification enabled
+    | by default and disable it only in local development if needed.
+    |
+    */
+
+    'http_verify_ssl' => filter_var(env('AI_HTTP_VERIFY_SSL', true), FILTER_VALIDATE_BOOL),
+
+    /*
+    |--------------------------------------------------------------------------
     | AI Providers
     |--------------------------------------------------------------------------
     |

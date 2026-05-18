@@ -4,8 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   cancelBookingRequest,
+  cancelGuestBookingRequest,
   downloadTicketRequest,
+  downloadGuestTicketRequest,
+  getGuestBookingRequest,
   getMyBookingRequest,
+  refreshGuestBookingPaymentRequest,
   refreshBookingPaymentRequest,
 } from '@/api/booking'
 import type { UserBooking } from '@/types/booking'
@@ -26,6 +30,11 @@ const successMessage = ref('')
 const bookingId = computed(() => Number(route.params.id))
 const isConfirmed = computed(() => booking.value?.status === 'confirmed')
 const isCancelledLike = computed(() => booking.value?.status === 'cancelled' || booking.value?.status === 'expired')
+const queryGuestToken = computed(() => {
+  const token = route.query.guest_token
+
+  return Array.isArray(token) ? token[0] ?? '' : String(token ?? '')
+})
 
 const readCheckoutContext = () => {
   try {
@@ -38,6 +47,7 @@ const readCheckoutContext = () => {
     const parsed = JSON.parse(raw) as {
       bookingId?: number
       userId?: number
+      guestToken?: string | null
       createdAt?: string
     }
 
@@ -64,6 +74,14 @@ const clearCheckoutContext = () => {
   }
 }
 
+const resolveGuestToken = () => {
+  if (queryGuestToken.value) {
+    return queryGuestToken.value
+  }
+
+  return readCheckoutContext()?.guestToken || ''
+}
+
 const resolveLoadErrorMessage = (requestError: unknown) => {
   const errorCandidate = requestError as {
     response?: {
@@ -88,7 +106,7 @@ const resolveLoadErrorMessage = (requestError: unknown) => {
   }
 
   if (status === 401) {
-    return 'Сессия оплаты больше не действует. Войдите в тот же аккаунт, из которого начинали покупку, и откройте checkout заново.'
+    return 'Сессия оплаты больше не действует. Войдите в тот же аккаунт или откройте гостевую ссылку из письма/страницы оплаты заново.'
   }
 
   return serverMessage || 'Не удалось загрузить страницу оплаты.'
@@ -114,7 +132,11 @@ const loadBooking = async () => {
   error.value = ''
 
   try {
-    booking.value = await getMyBookingRequest(bookingId.value)
+    const guestToken = resolveGuestToken()
+
+    booking.value = guestToken
+      ? await getGuestBookingRequest(bookingId.value, guestToken)
+      : await getMyBookingRequest(bookingId.value)
     clearCheckoutContext()
   } catch (requestError) {
     console.error(requestError)
@@ -133,9 +155,13 @@ const completePayment = async () => {
   error.value = ''
 
   try {
-    booking.value = (await refreshBookingPaymentRequest(booking.value.id)).booking
+    const guestToken = resolveGuestToken()
+
+    booking.value = guestToken
+      ? (await refreshGuestBookingPaymentRequest(booking.value.id, guestToken)).booking
+      : (await refreshBookingPaymentRequest(booking.value.id)).booking
     successMessage.value = booking.value.ticket
-      ? 'Оплата подтверждена. Билет уже готов к скачиванию.'
+      ? (booking.value.is_guest ? 'Оплата подтверждена. PDF-билет отправлен на указанную почту и доступен для скачивания.' : 'Оплата подтверждена. Билет уже готов к скачиванию.')
       : 'Оплата подтверждена. PDF-билет генерируется в фоне и скоро станет доступен.'
   } catch (requestError) {
     console.error(requestError)
@@ -154,8 +180,12 @@ const cancelPayment = async () => {
   error.value = ''
 
   try {
-    booking.value = (await cancelBookingRequest(booking.value.id)).booking
-    await router.push('/profile')
+    const guestToken = resolveGuestToken()
+
+    booking.value = guestToken
+      ? (await cancelGuestBookingRequest(booking.value.id, guestToken)).booking
+      : (await cancelBookingRequest(booking.value.id)).booking
+    await router.push(guestToken ? '/events' : '/profile')
   } catch (requestError) {
     console.error(requestError)
     error.value = 'Не удалось отменить оплату.'
@@ -172,7 +202,10 @@ const downloadTicket = async () => {
   ticketLoading.value = true
 
   try {
-    const { blob, contentDisposition } = await downloadTicketRequest(booking.value.id)
+    const guestToken = resolveGuestToken()
+    const { blob, contentDisposition } = guestToken
+      ? await downloadGuestTicketRequest(booking.value.id, guestToken)
+      : await downloadTicketRequest(booking.value.id)
     const objectUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     const fileNameMatch = contentDisposition?.match(/filename=\"?([^\";]+)\"?/)
@@ -288,10 +321,18 @@ onMounted(loadBooking)
         <p class="mt-4 text-5xl font-semibold text-slate-950">
           {{ formatPrice(booking.total_amount) }}
         </p>
+        <div
+          v-if="Number(booking.discount_amount) > 0"
+          class="mt-5 rounded-[1.4rem] border border-blue-100 bg-blue-50/70 px-4 py-4 text-sm leading-6 text-blue-900"
+        >
+          <p>Стоимость заказа: {{ formatPrice(booking.subtotal_amount) }}</p>
+          <p>Списано баллами: {{ booking.loyalty_points_spent }} баллов</p>
+          <p>Начислится после оплаты: {{ booking.loyalty_points_earned }} баллов</p>
+        </div>
         <p class="mt-3 text-sm leading-6 text-slate-500">
           {{
             booking.payment?.status === 'paid'
-              ? (booking.ticket ? 'Платеж уже подтвержден, билет готов.' : 'Платеж подтвержден, PDF-билет еще генерируется.')
+              ? (booking.ticket ? (booking.is_guest ? 'Платеж уже подтвержден, билет готов и отправляется на email.' : 'Платеж уже подтвержден, билет готов.') : 'Платеж подтвержден, PDF-билет еще генерируется.')
               : 'После подтверждения оплаты билет создастся в фоновой очереди без лишней задержки для пользователя.'
           }}
         </p>
@@ -327,8 +368,12 @@ onMounted(loadBooking)
             {{ ticketLoading ? 'Готовим PDF...' : 'Скачать билет PDF' }}
           </button>
 
-          <RouterLink to="/profile" class="secondary-button w-full text-center">
+          <RouterLink v-if="!booking.is_guest" to="/profile" class="secondary-button w-full text-center">
             Перейти в кабинет
+          </RouterLink>
+
+          <RouterLink v-else to="/events" class="secondary-button w-full text-center">
+            Вернуться в каталог
           </RouterLink>
         </div>
 

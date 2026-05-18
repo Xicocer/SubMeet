@@ -4,8 +4,11 @@ import importlib.util
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from threading import RLock
 from time import perf_counter
@@ -36,7 +39,9 @@ class RecommendationEngine:
         self.settings = settings
         self._lock = RLock()
         self._model: Any | None = None
+        self._ready = False
         self._dataset_cache: dict[str, tuple[int, pd.DataFrame]] = {}
+        self._recommendation_cache: dict[str, tuple[datetime, dict[str, Any]]] = {}
         self._live_dataset_bundle: DatasetBundle | None = None
         self._live_dataset_synced_at: datetime | None = None
         self._event_service_client = EventServiceClient(settings)
@@ -45,6 +50,9 @@ class RecommendationEngine:
 
     def ensure_ready(self) -> None:
         with self._lock:
+            if self._ready and self._model is not None:
+                return
+
             self._ensure_workspace_exists()
             self._ensure_workspace_module("matrix_factorization")
 
@@ -64,6 +72,8 @@ class RecommendationEngine:
                 self.train(regenerate_data=False)
             else:
                 self._load_model(force=True)
+
+            self._ready = True
 
     def health_snapshot(self) -> dict[str, Any]:
         try:
@@ -97,34 +107,47 @@ class RecommendationEngine:
         reference_date: datetime | None = None,
         authorization_header: str | None = None,
     ) -> dict[str, Any]:
-        self.ensure_ready()
+        normalized_limit = self._normalize_limit(limit)
+        base_context = user_context or UserContext()
+        cache_key = self._build_recommendation_cache_key(
+            user_id=user_id,
+            limit=normalized_limit,
+            user_context=base_context,
+            reference_date=reference_date,
+            authorization_header=authorization_header,
+        )
+        cached_payload = self._get_cached_recommendation(cache_key)
+        if cached_payload is not None:
+            return cached_payload
 
+        self.ensure_ready()
+        resolved_context = self._resolve_runtime_user_context(
+            user_id=user_id,
+            base_context=base_context,
+            authorization_header=authorization_header,
+        )
         with self._lock:
             model = self._load_model()
             datasets = self._load_datasets()
-            normalized_limit = self._normalize_limit(limit)
-            base_context = user_context or UserContext()
-            resolved_context = self._resolve_runtime_user_context(
-                user_id=user_id,
-                base_context=base_context,
-                authorization_header=authorization_header,
-            )
 
-            items = model.recommend(
-                user_id=user_id,
-                events=datasets.events,
-                interactions=datasets.interactions,
-                limit=normalized_limit,
-                user_context=resolved_context.model_dump(),
-                reference_date=reference_date.isoformat() if reference_date else None,
-            )
+        items = model.recommend(
+            user_id=user_id,
+            events=datasets.events,
+            interactions=datasets.interactions,
+            limit=normalized_limit,
+            user_context=resolved_context.model_dump(),
+            reference_date=reference_date.isoformat() if reference_date else None,
+        )
 
-            return {
-                "user_id": user_id,
-                "limit": normalized_limit,
-                "items": items,
-                "used_context": resolved_context.model_dump(),
-            }
+        payload = {
+            "user_id": user_id,
+            "limit": normalized_limit,
+            "items": items,
+            "used_context": resolved_context.model_dump(),
+        }
+        self._remember_recommendation(cache_key, payload)
+
+        return payload
 
     def append_interaction(
         self,
@@ -163,6 +186,7 @@ class RecommendationEngine:
                 self.settings.interactions_path.stat().st_mtime_ns,
                 updated,
             )
+            self._clear_recommendation_cache()
 
             if self.settings.use_live_data:
                 message = (
@@ -203,6 +227,8 @@ class RecommendationEngine:
             self.settings.model_path.parent.mkdir(parents=True, exist_ok=True)
             joblib.dump(model, self.settings.model_path)
             self._model = model
+            self._ready = True
+            self._clear_recommendation_cache()
 
             payload = {
                 "best_params": getattr(model, "best_params", None),
@@ -244,6 +270,7 @@ class RecommendationEngine:
             os.chdir(previous_working_directory)
 
         self._dataset_cache.clear()
+        self._clear_recommendation_cache()
 
     def _load_model(self, force: bool = False):
         if self._model is not None and not force:
@@ -300,9 +327,18 @@ class RecommendationEngine:
             if age_seconds <= self.settings.live_data_cache_seconds:
                 return self._live_dataset_bundle
 
-        events_payload = self._event_service_client.fetch_recommendation_events()
-        event_interactions_payload = self._event_service_client.fetch_recommendation_interactions()
-        booking_interactions_payload = self._booking_service_client.fetch_recommendation_interactions()
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            events_future = executor.submit(self._event_service_client.fetch_recommendation_events)
+            event_interactions_future = executor.submit(
+                self._event_service_client.fetch_recommendation_interactions,
+            )
+            booking_interactions_future = executor.submit(
+                self._booking_service_client.fetch_recommendation_interactions,
+            )
+
+            events_payload = events_future.result()
+            event_interactions_payload = event_interactions_future.result()
+            booking_interactions_payload = booking_interactions_future.result()
         interactions_payload = self._merge_interaction_payloads(
             event_interactions_payload,
             booking_interactions_payload,
@@ -315,6 +351,7 @@ class RecommendationEngine:
         bundle = DatasetBundle(events=events, users=users, interactions=interactions)
         self._live_dataset_bundle = bundle
         self._live_dataset_synced_at = datetime.now(UTC)
+        self._clear_recommendation_cache()
 
         if persist_snapshot:
             self._persist_dataset_bundle(bundle)
@@ -482,11 +519,61 @@ class RecommendationEngine:
         if not force and cache_key in self._dataset_cache:
             cached_mtime, cached_frame = self._dataset_cache[cache_key]
             if cached_mtime == modified_at:
-                return cached_frame.copy()
+                return cached_frame
 
         frame = pd.read_csv(path)
         self._dataset_cache[cache_key] = (modified_at, frame)
-        return frame.copy()
+        return frame
+
+    def _build_recommendation_cache_key(
+        self,
+        user_id: int,
+        limit: int,
+        user_context: UserContext,
+        reference_date: datetime | None,
+        authorization_header: str | None,
+    ) -> str:
+        authorization_hash = None
+        if authorization_header:
+            authorization_hash = sha256(authorization_header.encode("utf-8")).hexdigest()
+
+        return json.dumps(
+            {
+                "user_id": user_id,
+                "limit": limit,
+                "user_context": user_context.model_dump(),
+                "reference_date": reference_date.isoformat() if reference_date else None,
+                "authorization_hash": authorization_hash,
+            },
+            sort_keys=True,
+            default=str,
+        )
+
+    def _get_cached_recommendation(self, cache_key: str) -> dict[str, Any] | None:
+        if self.settings.recommendation_cache_seconds <= 0:
+            return None
+
+        cached = self._recommendation_cache.get(cache_key)
+        if cached is None:
+            return None
+
+        cached_at, payload = cached
+        age_seconds = (datetime.now(UTC) - cached_at).total_seconds()
+
+        if age_seconds > self.settings.recommendation_cache_seconds:
+            self._recommendation_cache.pop(cache_key, None)
+            return None
+
+        return deepcopy(payload)
+
+    def _remember_recommendation(self, cache_key: str, payload: dict[str, Any]) -> None:
+        if self.settings.recommendation_cache_seconds <= 0:
+            return
+
+        self._recommendation_cache[cache_key] = (datetime.now(UTC), deepcopy(payload))
+
+    def _clear_recommendation_cache(self) -> None:
+        self._recommendation_cache.clear()
 
     def _ensure_workspace_exists(self) -> None:
         if not self.settings.ml_workspace.exists():

@@ -4,12 +4,17 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Event;
-use App\Models\Tag;
+use App\Services\EventTeaserService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AdminEventModerationController extends Controller
 {
+    public function __construct(
+        private readonly EventTeaserService $teaserService,
+    ) {
+    }
+
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -24,6 +29,9 @@ class AdminEventModerationController extends Controller
                 'ageRating:id,label,min_age',
                 'organizer:id,auth_user_id,full_name,company_name,email',
                 'tags:id,name,slug',
+            ])
+            ->withCount([
+                'sessions as available_sessions_count' => fn ($query) => $query->available(),
             ])
             ->when(
                 $validated['status'] ?? null,
@@ -89,14 +97,11 @@ class AdminEventModerationController extends Controller
             'moderated_at' => now(),
         ]);
 
+        $this->teaserService->sync($event->fresh(['tags']));
+
         return response()->json([
             'message' => 'Event moderation decision was applied.',
-            'event' => $this->transformEvent($event->fresh([
-                'category:id,name,slug',
-                'ageRating:id,label,min_age',
-                'organizer:id,auth_user_id,full_name,company_name,email',
-                'tags:id,name,slug',
-            ])),
+            'event' => $this->transformEvent($this->loadEventForResponse($event->id)),
         ]);
     }
 
@@ -105,6 +110,8 @@ class AdminEventModerationController extends Controller
      */
     private function transformEvent(Event $event): array
     {
+        $isTeaser = $this->teaserService->isTeaser($event);
+
         return [
             'id' => $event->id,
             'title' => $event->title,
@@ -132,14 +139,25 @@ class AdminEventModerationController extends Controller
                 'display_name' => $event->organizer?->company_name ?? $event->organizer?->full_name,
                 'email' => $event->organizer?->email,
             ],
-            'tags' => $event->tags
-                ->map(fn (Tag $tag) => [
-                    'id' => $tag->id,
-                    'name' => $tag->name,
-                    'slug' => $tag->slug,
-                ])
-                ->values()
-                ->all(),
+            'tags' => $this->teaserService->transformTags($event),
+            'is_teaser' => $isTeaser,
+            'has_available_sessions' => !$isTeaser,
+            'teaser_reason' => $isTeaser ? EventTeaserService::REASON : null,
         ];
+    }
+
+    private function loadEventForResponse(int $eventId): Event
+    {
+        return Event::query()
+            ->with([
+                'category:id,name,slug',
+                'ageRating:id,label,min_age',
+                'organizer:id,auth_user_id,full_name,company_name,email',
+                'tags:id,name,slug',
+            ])
+            ->withCount([
+                'sessions as available_sessions_count' => fn ($query) => $query->available(),
+            ])
+            ->findOrFail($eventId);
     }
 }

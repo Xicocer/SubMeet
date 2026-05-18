@@ -51,8 +51,9 @@ export interface HallSummary {
   name: string
   address: string | null
   description: string | null
-  organizer_id: number
+  venue_owner_id: number | null
   status: HallStatus
+  hourly_rate: number | string
   capacities: HallCapacities
   layout_meta: HallLayoutMeta
   created_at: string | null
@@ -70,10 +71,20 @@ export interface HallFilters {
   per_page?: number
 }
 
+export interface PublicHallFilters {
+  search?: string
+  address?: string
+  min_hourly_rate?: number
+  max_hourly_rate?: number
+  page?: number
+  per_page?: number
+}
+
 export interface HallPayload {
   name: string
   address: string
   description: string | null
+  hourly_rate: number
   status: EditableHallStatus
   layout: HallLayout
 }
@@ -81,6 +92,40 @@ export interface HallPayload {
 export interface HallMutationResponse {
   message: string
   hall: HallDetails
+}
+
+export type HallRentalRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+
+export interface HallRentalRequest {
+  id: number
+  hall_id: number
+  event_id: number | null
+  organizer_id: number
+  status: HallRentalRequestStatus
+  requested_start: string | null
+  requested_end: string | null
+  hourly_rate: number | string
+  total_amount: number | string
+  duration_minutes?: number | null
+  organizer_message: string | null
+  response_note: string | null
+  responded_at: string | null
+  created_at: string | null
+  updated_at: string | null
+  hall: HallSummary | null
+}
+
+export interface HallRentalRequestPayload {
+  hall_id: number
+  event_id: number
+  requested_start: string
+  requested_end: string
+  organizer_message: string | null
+}
+
+export interface HallRentalRequestStatusPayload {
+  status: Extract<HallRentalRequestStatus, 'approved' | 'rejected'>
+  response_note: string | null
 }
 
 export interface HallCanvasDropPayload {

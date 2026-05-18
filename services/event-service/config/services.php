@@ -37,6 +37,8 @@ return [
 
     'auth' => [
         'base_url' => env('AUTH_SERVICE_URL', 'http://127.0.0.1:8000/api'),
+        'connect_timeout' => (float) env('AUTH_SERVICE_CONNECT_TIMEOUT', 2),
+        'timeout' => (float) env('AUTH_SERVICE_TIMEOUT', 8),
     ],
 
     'halls' => [

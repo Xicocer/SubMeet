@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventFavorite;
 use App\Models\EventSession;
-use App\Models\Tag;
+use App\Services\EventTeaserService;
 use App\Services\HallServiceClient;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Client\ConnectionException;
@@ -18,6 +18,7 @@ class WantToGoController extends Controller
 {
     public function __construct(
         private readonly HallServiceClient $hallServiceClient,
+        private readonly EventTeaserService $teaserService,
     ) {
     }
 
@@ -26,34 +27,36 @@ class WantToGoController extends Controller
         $authUser = $request->attributes->get('auth_user', []);
         $userId = (int) ($authUser['id'] ?? 0);
 
-        $activeEventIds = Event::query()
+        $publishedEventIds = Event::query()
             ->published()
-            ->whereHas('sessions', fn ($query) => $query->available())
             ->pluck('id');
 
         EventFavorite::query()
             ->where('user_id', $userId)
             ->when(
-                $activeEventIds->isNotEmpty(),
-                fn ($query) => $query->whereNotIn('event_id', $activeEventIds->all()),
+                $publishedEventIds->isNotEmpty(),
+                fn ($query) => $query->whereNotIn('event_id', $publishedEventIds->all()),
                 fn ($query) => $query
             )
             ->delete();
 
-        if ($activeEventIds->isEmpty()) {
+        if ($publishedEventIds->isEmpty()) {
             return response()->json([]);
         }
 
         /** @var EloquentCollection<int, EventFavorite> $favorites */
         $favorites = EventFavorite::query()
             ->with([
+                'event' => fn ($query) => $query->withCount([
+                    'sessions as available_sessions_count' => fn ($sessionQuery) => $sessionQuery->available(),
+                ]),
                 'event.category:id,name,slug',
                 'event.ageRating:id,label,min_age',
                 'event.organizer:id,auth_user_id,full_name,company_name,email',
                 'event.tags:id,name,slug',
             ])
             ->where('user_id', $userId)
-            ->whereIn('event_id', $activeEventIds->all())
+            ->whereIn('event_id', $publishedEventIds->all())
             ->latest('created_at')
             ->get();
 
@@ -96,7 +99,6 @@ class WantToGoController extends Controller
         $event = Event::query()
             ->published()
             ->whereKey($id)
-            ->whereHas('sessions', fn ($query) => $query->available())
             ->firstOrFail();
 
         $favorite = EventFavorite::query()->firstOrCreate([
@@ -168,14 +170,7 @@ class WantToGoController extends Controller
                 'label' => $event->ageRating?->label,
                 'min_age' => $event->ageRating?->min_age,
             ],
-            'tags' => $event->tags
-                ->map(fn (Tag $tag) => [
-                    'id' => $tag->id,
-                    'name' => $tag->name,
-                    'slug' => $tag->slug,
-                ])
-                ->values()
-                ->all(),
+            'tags' => $this->teaserService->transformTags($event),
             'organizer' => [
                 'id' => $event->organizer?->auth_user_id,
                 'full_name' => $event->organizer?->full_name,
@@ -185,6 +180,9 @@ class WantToGoController extends Controller
             ],
             'description' => $event->description,
             'is_wanted' => true,
+            'is_teaser' => $this->teaserService->isTeaser($event),
+            'has_available_sessions' => $this->teaserService->hasAvailableSessions($event),
+            'teaser_reason' => $this->teaserService->isTeaser($event) ? EventTeaserService::REASON : null,
             'wanted_at' => $favorite->created_at?->toISOString(),
             'minimum_price' => $minimumPrice !== null ? round($minimumPrice, 2) : null,
             'next_session' => $nextSession

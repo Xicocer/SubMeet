@@ -22,6 +22,8 @@ class AuthServiceClient
         $response = $this->http
             ->acceptJson()
             ->withToken($token)
+            ->connectTimeout((float) config('services.auth.connect_timeout', 2))
+            ->timeout((float) config('services.auth.timeout', 8))
             ->get(rtrim(config('services.auth.base_url'), '/') . '/me');
 
         if ($response->unauthorized() || $response->forbidden()) {

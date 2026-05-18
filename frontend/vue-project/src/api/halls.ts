@@ -4,37 +4,87 @@ import type { PaginatedResponse } from '@/types/event'
 import type {
   HallDetails,
   HallFilters,
+  HallRentalRequest,
+  HallRentalRequestPayload,
+  HallRentalRequestStatusPayload,
   HallMutationResponse,
   HallPayload,
+  PublicHallFilters,
   HallSummary,
 } from '@/types/hall'
 
-export const getOrganizerHallsRequest = async (params: HallFilters) => {
-  const { data } = await hallApi.get<PaginatedResponse<HallSummary>>('/organizer/halls', { params })
+export const getPublicHallsRequest = async (params: PublicHallFilters) => {
+  const { data } = await hallApi.get<PaginatedResponse<HallSummary>>('/halls', { params })
   return data
 }
 
-export const getOrganizerHallDashboardRequest = async () => {
-  const { data } = await hallApi.get<OrganizerHallDashboardResponse>('/organizer/dashboard')
+export const getVenueHallsRequest = async (params: HallFilters) => {
+  const { data } = await hallApi.get<PaginatedResponse<HallSummary>>('/venue/halls', { params })
   return data
 }
 
-export const getOrganizerHallRequest = async (id: number) => {
-  const { data } = await hallApi.get<HallDetails>(`/organizer/halls/${id}`)
+export const getVenueHallDashboardRequest = async () => {
+  const { data } = await hallApi.get<OrganizerHallDashboardResponse>('/venue/dashboard')
   return data
 }
 
-export const createOrganizerHallRequest = async (payload: HallPayload) => {
-  const { data } = await hallApi.post<HallMutationResponse>('/organizer/halls', payload)
+export const getVenueHallRequest = async (id: number) => {
+  const { data } = await hallApi.get<HallDetails>(`/venue/halls/${id}`)
   return data
 }
 
-export const updateOrganizerHallRequest = async (id: number, payload: HallPayload) => {
-  const { data } = await hallApi.put<HallMutationResponse>(`/organizer/halls/${id}`, payload)
+export const createVenueHallRequest = async (payload: HallPayload) => {
+  const { data } = await hallApi.post<HallMutationResponse>('/venue/halls', payload)
   return data
 }
 
-export const archiveOrganizerHallRequest = async (id: number) => {
-  const { data } = await hallApi.delete<HallMutationResponse>(`/organizer/halls/${id}`)
+export const updateVenueHallRequest = async (id: number, payload: HallPayload) => {
+  const { data } = await hallApi.put<HallMutationResponse>(`/venue/halls/${id}`, payload)
   return data
 }
+
+export const archiveVenueHallRequest = async (id: number) => {
+  const { data } = await hallApi.delete<HallMutationResponse>(`/venue/halls/${id}`)
+  return data
+}
+
+export const getOrganizerHallRentalRequestsRequest = async (params?: Record<string, unknown>) => {
+  const { data } = await hallApi.get<PaginatedResponse<HallRentalRequest>>('/organizer/hall-rental-requests', {
+    params,
+  })
+  return data
+}
+
+export const createOrganizerHallRentalRequest = async (payload: HallRentalRequestPayload) => {
+  const { data } = await hallApi.post<{ message: string; rental_request: HallRentalRequest }>(
+    '/organizer/hall-rental-requests',
+    payload,
+  )
+  return data
+}
+
+export const getVenueHallRentalRequestsRequest = async (params?: Record<string, unknown>) => {
+  const { data } = await hallApi.get<PaginatedResponse<HallRentalRequest>>('/venue/hall-rental-requests', {
+    params,
+  })
+  return data
+}
+
+export const updateVenueHallRentalRequestStatus = async (
+  id: number,
+  payload: HallRentalRequestStatusPayload,
+) => {
+  const { data } = await hallApi.patch<{ message: string; rental_request: HallRentalRequest }>(
+    `/venue/hall-rental-requests/${id}`,
+    payload,
+  )
+  return data
+}
+
+// Temporary aliases while the UI transitions from organizer-owned halls to venue-owned halls.
+export const getOrganizerHallsRequest = getVenueHallsRequest
+export const getOrganizerHallDashboardRequest = getVenueHallDashboardRequest
+export const getOrganizerHallRequest = getVenueHallRequest
+export const createOrganizerHallRequest = createVenueHallRequest
+export const updateOrganizerHallRequest = updateVenueHallRequest
+export const archiveOrganizerHallRequest = archiveVenueHallRequest

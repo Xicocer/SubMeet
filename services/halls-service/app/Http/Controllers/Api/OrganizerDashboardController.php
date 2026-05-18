@@ -11,26 +11,27 @@ class OrganizerDashboardController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
-        $organizer = $request->attributes->get('auth_user');
-        $organizerId = (int) ($organizer['id'] ?? 0);
+        $venueOwner = $request->attributes->get('auth_user');
+        $venueOwnerId = (int) ($venueOwner['id'] ?? 0);
 
         $statusCounts = Hall::query()
-            ->where('organizer_id', $organizerId)
+            ->where('venue_owner_id', $venueOwnerId)
             ->selectRaw('status, COUNT(*) as aggregate')
             ->groupBy('status')
             ->pluck('aggregate', 'status');
 
         $capacitySummary = Hall::query()
-            ->where('organizer_id', $organizerId)
+            ->where('venue_owner_id', $venueOwnerId)
             ->selectRaw('
                 COALESCE(SUM(total_capacity), 0) as total_capacity,
                 COALESCE(MAX(total_capacity), 0) as largest_capacity,
-                COALESCE(ROUND(AVG(total_capacity)), 0) as average_capacity
+                COALESCE(ROUND(AVG(total_capacity)), 0) as average_capacity,
+                COALESCE(ROUND(AVG(hourly_rate), 2), 0) as average_hourly_rate
             ')
             ->first();
 
         $recentHalls = Hall::query()
-            ->where('organizer_id', $organizerId)
+            ->where('venue_owner_id', $venueOwnerId)
             ->latest('updated_at')
             ->limit(5)
             ->get()
@@ -40,6 +41,7 @@ class OrganizerDashboardController extends Controller
                 'address' => $hall->address,
                 'status' => $hall->status,
                 'total_capacity' => $hall->total_capacity,
+                'hourly_rate' => (float) $hall->hourly_rate,
                 'updated_at' => $hall->updated_at?->toISOString(),
             ])
             ->values()
@@ -54,6 +56,7 @@ class OrganizerDashboardController extends Controller
                 'capacity_total' => (int) ($capacitySummary?->total_capacity ?? 0),
                 'capacity_largest' => (int) ($capacitySummary?->largest_capacity ?? 0),
                 'capacity_average' => (int) ($capacitySummary?->average_capacity ?? 0),
+                'hourly_rate_average' => (float) ($capacitySummary?->average_hourly_rate ?? 0),
             ],
             'recent_halls' => $recentHalls,
         ]);

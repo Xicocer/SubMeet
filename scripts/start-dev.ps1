@@ -14,14 +14,28 @@ function New-ServiceDefinition {
         [string]$Name,
         [string]$Workdir,
         [int]$Port = 0,
+        [int[]]$ExtraPorts = @(),
         [string]$Url = '',
         [string]$Command
     )
+
+    $ports = @()
+
+    if ($Port -gt 0) {
+        $ports += $Port
+    }
+
+    foreach ($extraPort in $ExtraPorts) {
+        if ($extraPort -gt 0) {
+            $ports += $extraPort
+        }
+    }
 
     return [pscustomobject]@{
         Name = $Name
         Workdir = $Workdir
         Port = $Port
+        Ports = @($ports)
         Url = $Url
         Command = $Command
     }
@@ -60,6 +74,13 @@ $services = @(
         -Port 8003 `
         -Url 'http://127.0.0.1:8003' `
         -Command 'php artisan serve --host=127.0.0.1 --port=8003'),
+    (New-ServiceDefinition `
+        -Name 'Mailpit' `
+        -Workdir $rootDir `
+        -Port 8025 `
+        -ExtraPorts @(1025) `
+        -Url 'http://127.0.0.1:8025' `
+        -Command '.\scripts\start-mailpit.ps1'),
     (New-ServiceDefinition `
         -Name 'Booking Scheduler' `
         -Workdir (Join-Path $rootDir 'services\booking-service') `
@@ -111,8 +132,22 @@ function Test-PortListening {
     return $null -ne (Get-ListeningProcessId -Port $Port)
 }
 
+function Read-LauncherMetadata {
+    param(
+        [string]$Path
+    )
+
+    $parsed = Get-Content -Raw $Path | ConvertFrom-Json
+
+    if ($null -eq $parsed) {
+        return @()
+    }
+
+    return @($parsed | ForEach-Object { $_ })
+}
+
 if (Test-Path $metadataPath) {
-    $existingEntries = @(Get-Content -Raw $metadataPath | ConvertFrom-Json)
+    $existingEntries = @(Read-LauncherMetadata -Path $metadataPath)
     $runningEntries = @()
 
     foreach ($entry in $existingEntries) {
@@ -133,13 +168,19 @@ if (Test-Path $metadataPath) {
 $busyPorts = @()
 
 foreach ($service in $services) {
-    if ($service.Port -le 0) {
+    $servicePorts = @($service.Ports)
+
+    if ($servicePorts.Count -eq 0) {
         continue
     }
 
-    $processId = Get-ListeningProcessId -Port $service.Port
+    foreach ($port in $servicePorts) {
+        $processId = Get-ListeningProcessId -Port $port
 
-    if ($null -ne $processId) {
+        if ($null -eq $processId) {
+            continue
+        }
+
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         $processName = 'PID {0}' -f $processId
 
@@ -149,7 +190,7 @@ foreach ($service in $services) {
 
         $busyPorts += [pscustomobject]@{
             Name = $service.Name
-            Port = $service.Port
+            Port = $port
             Process = $processName
         }
     }
@@ -201,6 +242,7 @@ foreach ($service in $services) {
     $startedProcesses += [pscustomobject]@{
         Name = $service.Name
         Port = $service.Port
+        Ports = $service.Ports
         Url = $service.Url
         Pid = $process.Id
         Workdir = $service.Workdir

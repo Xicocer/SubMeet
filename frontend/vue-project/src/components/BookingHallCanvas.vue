@@ -7,9 +7,11 @@ const props = withDefaults(
   defineProps<{
     layout: BookingHallLayout
     selectedElementId?: string | null
+    selectedElementIds?: string[]
   }>(),
   {
     selectedElementId: null,
+    selectedElementIds: () => [],
   },
 )
 
@@ -50,7 +52,7 @@ const isAvailable = (element: BookingLayoutElement) => {
 }
 
 const isSelected = (element: BookingLayoutElement) => {
-  return props.selectedElementId === element.id
+  return props.selectedElementId === element.id || props.selectedElementIds.includes(element.id)
 }
 
 const elementClasses = (element: BookingLayoutElement) => {

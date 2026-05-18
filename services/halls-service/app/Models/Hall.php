@@ -15,10 +15,11 @@ class Hall extends Model
     public const STATUS_ARCHIVED = 'archived';
 
     protected $fillable = [
-        'organizer_id',
+        'venue_owner_id',
         'name',
         'address',
         'description',
+        'hourly_rate',
         'layout',
         'seat_capacity',
         'vip_capacity',
@@ -30,7 +31,8 @@ class Hall extends Model
     protected function casts(): array
     {
         return [
-            'organizer_id' => 'integer',
+            'venue_owner_id' => 'integer',
+            'hourly_rate' => 'decimal:2',
             'layout' => 'array',
             'seat_capacity' => 'integer',
             'vip_capacity' => 'integer',

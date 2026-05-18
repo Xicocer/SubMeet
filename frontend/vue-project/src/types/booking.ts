@@ -62,6 +62,9 @@ export interface BookingPayload {
     element_id: string
     quantity: number
   }>
+  loyalty_points_to_spend?: number
+  customer_email?: string
+  guest_birth_date?: string
 }
 
 export interface BookingItem {
@@ -102,14 +105,23 @@ export interface BookingTicketDocument {
 
 export interface UserBooking {
   id: number
-  user_id: number
+  user_id: number | null
+  customer_email: string | null
+  is_guest: boolean
+  guest_access_token?: string
   status: BookingStatus
   flow_type: BookingFlowType
+  subtotal_amount: number | string
+  discount_amount: number | string
+  loyalty_points_spent: number
+  loyalty_points_earned: number
+  loyalty_points_awarded_at: string | null
   total_amount: number | string
   currency: string
   reserved_until: string | null
   confirmed_at: string | null
   ticket_issued_at: string | null
+  ticket_sent_at: string | null
   ticket_used_at: string | null
   ticket_used_by_organizer_id: number | null
   cancelled_at: string | null
@@ -127,6 +139,14 @@ export interface BookingMutationResponse {
   message: string
   checkout_required?: boolean
   booking: UserBooking
+}
+
+export interface LoyaltyAccountResponse {
+  balance: number
+  earned_total: number
+  spent_total: number
+  earn_percent: number
+  max_discount_percent: number
 }
 
 export interface TicketVerificationResponse {

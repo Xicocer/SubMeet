@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
-import { getRecommendationPreviewRequest, getUserRecommendationsRequest } from '@/api/recommendations'
+import { getUserRecommendationsRequest } from '@/api/recommendations'
 import {
   addWantToGoRequest,
   getEventAssistantRequest,
@@ -46,6 +46,7 @@ const assistantQuery = ref('')
 const filters = reactive({
   search: '',
   category: '',
+  tag: '',
   age: '',
   sort: 'newest' as EventSort,
   page: 1,
@@ -97,12 +98,13 @@ const pageNumbers = computed(() => {
 })
 
 const featuredEvent = computed(() => events.value[0] ?? null)
-const spotlightEvents = computed(() => events.value.slice(1, 4))
+const spotlightEvents = computed(() => [] as PublicEvent[])
 const activeFilterCount = computed(() => {
   let count = 0
 
   if (filters.search.trim()) count += 1
   if (filters.category) count += 1
+  if (filters.tag) count += 1
   if (filters.age) count += 1
   if (filters.sort !== 'newest') count += 1
 
@@ -111,10 +113,8 @@ const activeFilterCount = computed(() => {
 
 const featuredCategoryName = computed(() => featuredEvent.value?.category?.name || 'События месяца')
 const popularCategories = computed(() => categories.value.slice(0, 6))
-const recommendationTitle = computed(() => authStore.user ? 'Рекомендуем вам' : 'Что может понравиться уже сейчас')
-const recommendationSubtitle = computed(() => authStore.user
-  ? 'Лента постепенно подстраивается под твои просмотры, бронирования и интересы, поэтому с каждым визитом подборка становится точнее.'
-  : 'Даже без авторизации витрина собирает сильные стартовые варианты, чтобы можно было быстро выбрать событие и перейти к покупке билета.')
+const recommendationTitle = computed(() => 'Рекомендуем вам')
+const recommendationSubtitle = computed(() => 'Лента постепенно подстраивается под твои просмотры, бронирования и интересы, поэтому с каждым визитом подборка становится точнее.')
 const assistantContextLabel = computed(() => {
   if (!assistantResponse.value) {
     return ''
@@ -141,6 +141,7 @@ const getQueryValue = (value?: LocationQueryValue | LocationQueryValue[] | null)
 const syncFiltersFromQuery = () => {
   filters.search = getQueryValue(route.query.search)
   filters.category = getQueryValue(route.query.category)
+  filters.tag = getQueryValue(route.query.tag)
   filters.age = getQueryValue(route.query.age)
   filters.sort = (getQueryValue(route.query.sort) || 'newest') as EventSort
   filters.page = Number(getQueryValue(route.query.page) || 1)
@@ -151,6 +152,7 @@ const buildQuery = (page = 1) => {
 
   if (filters.search.trim()) query.search = filters.search.trim()
   if (filters.category) query.category = filters.category
+  if (filters.tag) query.tag = filters.tag
   if (filters.age) query.age = filters.age
   if (filters.sort !== 'newest') query.sort = filters.sort
   if (page > 1) query.page = String(page)
@@ -159,6 +161,10 @@ const buildQuery = (page = 1) => {
 }
 
 const buildEventCopy = (event: PublicEvent) => {
+  if (event.is_teaser) {
+    return event.teaser_reason || 'Это анонс: событие уже прошло публикацию, а даты и билеты появятся после подтверждения площадки.'
+  }
+
   const categorySlug = event.category?.slug || ''
   return eventCopyByCategory[categorySlug] || 'Современная карточка события с быстрым переходом к выбору сеанса и бронированию.'
 }
@@ -173,6 +179,22 @@ const recommendationTags = (item: RecommendationItem) => {
 
 const buildRecommendationLocation = (item: RecommendationItem) => {
   return item.venue_address || item.hall_name || item.city || 'Площадка уточняется'
+}
+
+const failedPosterKeys = ref<string[]>([])
+
+const posterKey = (scope: string, id: number | string) => `${scope}:${id}`
+
+const isPosterAvailable = (scope: string, id: number | string, posterUrl?: string | null) => {
+  return Boolean(posterUrl) && !failedPosterKeys.value.includes(posterKey(scope, id))
+}
+
+const markPosterFailed = (scope: string, id: number | string) => {
+  const key = posterKey(scope, id)
+
+  if (!failedPosterKeys.value.includes(key)) {
+    failedPosterKeys.value = [...failedPosterKeys.value, key]
+  }
 }
 
 const isWantToGoLoading = (eventId: number) => wantToGoUpdatingIds.value.includes(eventId)
@@ -244,6 +266,7 @@ const loadEvents = async () => {
     const params: EventListFilters = {
       search: filters.search.trim() || undefined,
       category: filters.category || undefined,
+      tag: filters.tag || undefined,
       age: filters.age ? Number(filters.age) : undefined,
       sort: filters.sort,
       page: filters.page,
@@ -269,13 +292,17 @@ const loadEvents = async () => {
 }
 
 const loadRecommendations = async () => {
+  if (!authStore.user) {
+    recommendations.value = []
+    recommendationsLoading.value = false
+    return
+  }
+
   recommendationsLoading.value = true
   recommendationsError.value = ''
 
   try {
-    const response = authStore.user
-      ? await getUserRecommendationsRequest(authStore.user.id, 4)
-      : await getRecommendationPreviewRequest(4)
+    const response = await getUserRecommendationsRequest(authStore.user.id, 4)
 
     recommendations.value = response.items
   } catch (requestError) {
@@ -322,6 +349,7 @@ const applyFilters = async () => {
 const resetFilters = async () => {
   filters.search = ''
   filters.category = ''
+  filters.tag = ''
   filters.age = ''
   filters.sort = 'newest'
   filters.page = 1
@@ -342,6 +370,17 @@ const goToPage = async (page: number) => {
 
 const selectCategory = async (slug: string) => {
   filters.category = filters.category === slug ? '' : slug
+  filters.tag = ''
+
+  await router.replace({
+    name: 'events',
+    query: buildQuery(1),
+  })
+}
+
+const selectTeaser = async () => {
+  filters.tag = filters.tag === 'teaser' ? '' : 'teaser'
+  filters.category = ''
 
   await router.replace({
     name: 'events',
@@ -418,6 +457,14 @@ onMounted(async () => {
               </RouterLink>
 
               <RouterLink
+                v-else-if="authStore.isVenueOwner"
+                to="/venue/halls"
+                class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white"
+              >
+                Площадки
+              </RouterLink>
+
+              <RouterLink
                 v-else
                 to="/profile"
                 class="secondary-button border-white/20 bg-white/10 text-white hover:border-white/35 hover:bg-white/16 hover:text-white"
@@ -441,10 +488,25 @@ onMounted(async () => {
               <RouterLink to="/register/organizer" class="secondary-button border-white/20 bg-transparent text-white hover:border-white/35 hover:bg-white/10 hover:text-white">
                 Стать организатором
               </RouterLink>
+
+              <RouterLink to="/register/venue" class="secondary-button border-white/20 bg-transparent text-white hover:border-white/35 hover:bg-white/10 hover:text-white">
+                Добавить площадку
+              </RouterLink>
             </template>
           </div>
 
           <div class="mt-8 flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-full border px-4 py-2 text-sm font-semibold uppercase tracking-[0.16em] transition duration-200"
+              :class="filters.tag === 'teaser'
+                ? 'border-amber-300 bg-amber-300 text-slate-950'
+                : 'border-amber-200/60 bg-amber-300/12 text-amber-100 hover:border-amber-200 hover:bg-amber-300/20'"
+              @click="selectTeaser"
+            >
+              Тизеры
+            </button>
+
             <button
               v-for="category in popularCategories"
               :key="category.id"
@@ -524,7 +586,7 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="app-panel overflow-hidden p-5 sm:p-6 lg:p-7">
+    <section v-if="authStore.isAuthenticated" class="app-panel overflow-hidden p-5 sm:p-6 lg:p-7">
       <div class="grid gap-6 xl:grid-cols-[1.05fr_0.95fr] xl:items-start">
         <div>
           <span class="info-chip">Митя</span>
@@ -633,10 +695,11 @@ onMounted(async () => {
           >
             <div class="relative h-44 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900">
               <img
-                v-if="item.poster_url"
-                :src="item.poster_url"
+                v-if="isPosterAvailable('assistant', item.id, item.poster_url)"
+                :src="item.poster_url || undefined"
                 :alt="item.title"
                 class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+                @error="markPosterFailed('assistant', item.id)"
               />
               <div v-else class="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(96,165,250,0.35),transparent_30%),linear-gradient(145deg,rgba(15,23,42,0.92),rgba(30,64,175,0.88))]"></div>
 
@@ -692,7 +755,7 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="app-panel p-5 sm:p-6 lg:p-7">
+    <section v-if="authStore.isAuthenticated" class="app-panel p-5 sm:p-6 lg:p-7">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div class="max-w-3xl">
           <span class="info-chip">Smart picks</span>
@@ -741,10 +804,11 @@ onMounted(async () => {
             class="relative h-44 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900"
           >
             <img
-              v-if="item.poster_url"
-              :src="item.poster_url"
+              v-if="isPosterAvailable('recommendation', item.id, item.poster_url)"
+              :src="item.poster_url || undefined"
               :alt="item.title"
               class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+              @error="markPosterFailed('recommendation', item.id)"
             />
             <div v-else class="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(96,165,250,0.35),transparent_30%),linear-gradient(145deg,rgba(15,23,42,0.92),rgba(30,64,175,0.88))]"></div>
 
@@ -892,10 +956,21 @@ onMounted(async () => {
         <button
           type="button"
           class="catalog-chip"
-          :class="filters.category === '' ? 'catalog-chip-active' : ''"
+          :class="filters.category === '' && filters.tag === '' ? 'catalog-chip-active' : ''"
           @click="selectCategory('')"
         >
           Все события
+        </button>
+
+        <button
+          type="button"
+          class="rounded-full border px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] transition"
+          :class="filters.tag === 'teaser'
+            ? 'border-amber-300 bg-amber-300 text-slate-950 shadow-sm shadow-amber-500/25'
+            : 'border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100'"
+          @click="selectTeaser"
+        >
+          Тизеры
         </button>
 
         <button
@@ -972,11 +1047,13 @@ onMounted(async () => {
           class="group overflow-hidden rounded-[2.2rem] border border-slate-200/80 bg-white shadow-[0_30px_90px_-60px_rgba(15,23,42,0.42)] transition duration-300 hover:-translate-y-1.5 hover:border-blue-200 hover:shadow-[0_40px_110px_-60px_rgba(37,99,235,0.38)]"
         >
           <div class="relative h-72 overflow-hidden">
-            <div
-              v-if="event.poster_url"
-              class="h-full w-full bg-cover bg-center transition duration-500 group-hover:scale-[1.04]"
-              :style="{ backgroundImage: `linear-gradient(rgba(15, 23, 42, 0.06), rgba(15, 23, 42, 0.42)), url(${event.poster_url})` }"
-            ></div>
+            <img
+              v-if="isPosterAvailable('catalog', event.id, event.poster_url)"
+              :src="event.poster_url!"
+              :alt="event.title"
+              class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+              @error="markPosterFailed('catalog', event.id)"
+            />
 
             <div
               v-else
@@ -992,10 +1069,19 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="absolute inset-x-0 top-0 flex items-center justify-between p-5">
-              <span class="rounded-full border border-white/18 bg-slate-950/58 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur">
-                {{ event.category?.name || 'Событие' }}
-              </span>
+            <div class="absolute inset-x-0 top-0 flex items-center justify-between gap-3 p-5">
+              <div class="flex flex-wrap gap-2">
+                <span class="rounded-full border border-white/18 bg-slate-950/58 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur">
+                  {{ event.category?.name || 'Событие' }}
+                </span>
+
+                <span
+                  v-if="event.is_teaser"
+                  class="rounded-full border border-amber-200 bg-amber-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-950 shadow-sm shadow-amber-500/25"
+                >
+                  Тизер
+                </span>
+              </div>
 
               <span class="rounded-full border border-white/18 bg-white/14 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white backdrop-blur">
                 {{ event.age_rating?.label || '0+' }}
@@ -1025,18 +1111,28 @@ onMounted(async () => {
             </div>
 
             <div class="flex flex-wrap gap-2">
-              <span class="status-badge border-slate-200 bg-slate-50 text-slate-600">
-                Онлайн-бронь мест
+              <span
+                class="status-badge"
+                :class="event.is_teaser
+                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                  : 'border-slate-200 bg-slate-50 text-slate-600'"
+              >
+                {{ event.is_teaser ? 'Анонс без даты' : 'Онлайн-бронь мест' }}
               </span>
-              <span class="status-badge border-blue-100 bg-blue-50 text-blue-700">
-                Живые сеансы
+              <span
+                class="status-badge"
+                :class="event.is_teaser
+                  ? 'border-orange-200 bg-orange-50 text-orange-700'
+                  : 'border-blue-100 bg-blue-50 text-blue-700'"
+              >
+                {{ event.is_teaser ? 'Можно добавить в “Хочу сходить”' : 'Живые сеансы' }}
               </span>
             </div>
 
             <div class="flex items-center justify-between gap-4">
               <div class="flex flex-wrap items-center gap-3">
                 <RouterLink :to="`/events/${event.id}`" class="primary-button">
-                  Купить билет
+                  {{ event.is_teaser ? 'Открыть тизер' : 'Купить билет' }}
                 </RouterLink>
 
                 <WantToGoButton
@@ -1053,7 +1149,7 @@ onMounted(async () => {
                   Следующий шаг
                 </p>
                 <p class="mt-1 text-sm font-medium text-slate-700">
-                  Выбрать сеанс
+                  {{ event.is_teaser ? 'Следить за сеансами' : 'Выбрать сеанс' }}
                 </p>
               </div>
             </div>

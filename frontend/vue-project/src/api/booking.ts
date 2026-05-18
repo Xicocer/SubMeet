@@ -3,6 +3,7 @@ import type { OrganizerBookingDashboardResponse } from '@/types/analytics'
 import type {
   BookingMutationResponse,
   BookingPayload,
+  LoyaltyAccountResponse,
   SessionAvailabilityResponse,
   TicketVerificationResponse,
   UserBooking,
@@ -21,6 +22,39 @@ export const createBookingRequest = async (payload: BookingPayload) => {
 
 export const createPurchaseRequest = async (payload: BookingPayload) => {
   const { data } = await bookingApi.post<BookingMutationResponse>('/bookings/purchase', payload)
+  return data
+}
+
+export const createGuestPurchaseRequest = async (payload: BookingPayload) => {
+  const { data } = await bookingApi.post<BookingMutationResponse>('/bookings/guest-purchase', payload)
+  return data
+}
+
+export const getGuestBookingRequest = async (bookingId: number, guestToken: string) => {
+  const { data } = await bookingApi.get<UserBooking>(`/guest/bookings/${bookingId}`, {
+    params: {
+      token: guestToken,
+    },
+  })
+
+  return data
+}
+
+export const refreshGuestBookingPaymentRequest = async (bookingId: number, guestToken: string) => {
+  const { data } = await bookingApi.post<BookingMutationResponse>(
+    `/guest/bookings/${bookingId}/refresh-payment`,
+    { token: guestToken },
+  )
+
+  return data
+}
+
+export const cancelGuestBookingRequest = async (bookingId: number, guestToken: string) => {
+  const { data } = await bookingApi.post<BookingMutationResponse>(
+    `/guest/bookings/${bookingId}/cancel`,
+    { token: guestToken },
+  )
+
   return data
 }
 
@@ -63,6 +97,25 @@ export const downloadTicketRequest = async (bookingId: number) => {
     blob: data,
     contentDisposition: headers['content-disposition'] as string | undefined,
   }
+}
+
+export const downloadGuestTicketRequest = async (bookingId: number, guestToken: string) => {
+  const { data, headers } = await bookingApi.get<Blob>(`/guest/bookings/${bookingId}/ticket`, {
+    params: {
+      token: guestToken,
+    },
+    responseType: 'blob',
+  })
+
+  return {
+    blob: data,
+    contentDisposition: headers['content-disposition'] as string | undefined,
+  }
+}
+
+export const getLoyaltyAccountRequest = async () => {
+  const { data } = await bookingApi.get<LoyaltyAccountResponse>('/loyalty')
+  return data
 }
 
 export const verifyTicketRequest = async (ticketCode: string) => {

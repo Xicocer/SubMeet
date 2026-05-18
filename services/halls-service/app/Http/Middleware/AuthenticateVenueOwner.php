@@ -1,0 +1,58 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use App\Services\AuthServiceClient;
+use Closure;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class AuthenticateVenueOwner
+{
+    public function __construct(
+        private readonly AuthServiceClient $authServiceClient,
+    ) {
+    }
+
+    public function handle(Request $request, Closure $next): Response
+    {
+        $token = $request->bearerToken();
+
+        if (! $token) {
+            return response()->json([
+                'message' => 'Authorization token is required.',
+            ], 401);
+        }
+
+        try {
+            $user = $this->authServiceClient->getCurrentUser($token);
+        } catch (ConnectionException) {
+            return response()->json([
+                'message' => 'Auth service is temporarily unavailable.',
+            ], 503);
+        }
+
+        if (! $user) {
+            return response()->json([
+                'message' => 'User is not authenticated.',
+            ], 401);
+        }
+
+        if (($user['role']['role'] ?? null) !== 'venue_owner') {
+            return response()->json([
+                'message' => 'Only venue owners can access venue management.',
+            ], 403);
+        }
+
+        if (($user['organizer_profile']['moderation_status'] ?? 'approved') !== 'approved') {
+            return response()->json([
+                'message' => 'Venue owner account is awaiting approval or restricted by moderation.',
+            ], 403);
+        }
+
+        $request->attributes->set('auth_user', $user);
+
+        return $next($request);
+    }
+}

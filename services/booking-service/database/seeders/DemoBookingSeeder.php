@@ -4,11 +4,13 @@ namespace Database\Seeders;
 
 use App\Models\Booking;
 use App\Models\BookingItem;
+use App\Models\LoyaltyPointAccount;
 use App\Models\Payment;
 use App\Models\SessionSeat;
 use App\Models\SessionSnapshot;
 use App\Models\SessionStandingArea;
 use App\Services\Payments\TicketDocumentService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Storage;
 
@@ -17,7 +19,10 @@ class DemoBookingSeeder extends Seeder
     public function run(): void
     {
         $ticketDocumentService = app(TicketDocumentService::class);
-        $now = now();
+        $now = CarbonImmutable::now();
+
+        $this->cleanupDemoData();
+        $this->seedLoyaltyAccounts();
 
         $snapshots = [
             4101 => [
@@ -29,13 +34,13 @@ class DemoBookingSeeder extends Seeder
                 'event_category_slug' => 'concert',
                 'event_age_rating_label' => '16+',
                 'event_min_age' => 16,
-                'hall_name' => 'Крыша ДКХ',
+                'hall_name' => 'Крыша на Покровке',
                 'hall_address' => 'Нижний Новгород, ул. Большая Покровская, 18',
                 'hall_layout' => $this->buildRooftopConcertLayout(),
                 'base_price' => 2800,
                 'currency' => 'RUB',
-                'starts_at' => $now->copy()->addDays(2)->setTime(20, 0),
-                'ends_at' => $now->copy()->addDays(2)->setTime(22, 30),
+                'starts_at' => $now->addDays(2)->setTime(20, 0),
+                'ends_at' => $now->addDays(2)->setTime(22, 30),
                 'status' => 'scheduled',
             ],
             4102 => [
@@ -47,13 +52,13 @@ class DemoBookingSeeder extends Seeder
                 'event_category_slug' => 'concert',
                 'event_age_rating_label' => '16+',
                 'event_min_age' => 16,
-                'hall_name' => 'Крыша ДКХ',
+                'hall_name' => 'Крыша на Покровке',
                 'hall_address' => 'Нижний Новгород, ул. Большая Покровская, 18',
                 'hall_layout' => $this->buildRooftopConcertLayout(),
                 'base_price' => 2500,
                 'currency' => 'RUB',
-                'starts_at' => $now->copy()->subDays(7)->setTime(20, 0),
-                'ends_at' => $now->copy()->subDays(7)->setTime(22, 30),
+                'starts_at' => $now->subDays(7)->setTime(20, 0),
+                'ends_at' => $now->subDays(7)->setTime(22, 30),
                 'status' => 'completed',
             ],
             4201 => [
@@ -70,8 +75,8 @@ class DemoBookingSeeder extends Seeder
                 'hall_layout' => $this->buildComedyHallLayout(),
                 'base_price' => 1800,
                 'currency' => 'RUB',
-                'starts_at' => $now->copy()->addDay()->setTime(19, 0),
-                'ends_at' => $now->copy()->addDay()->setTime(20, 40),
+                'starts_at' => $now->addDay()->setTime(19, 0),
+                'ends_at' => $now->addDay()->setTime(20, 40),
                 'status' => 'scheduled',
             ],
             4202 => [
@@ -88,8 +93,8 @@ class DemoBookingSeeder extends Seeder
                 'hall_layout' => $this->buildComedyHallLayout(),
                 'base_price' => 2100,
                 'currency' => 'RUB',
-                'starts_at' => $now->copy()->addDays(9)->setTime(21, 0),
-                'ends_at' => $now->copy()->addDays(9)->setTime(22, 40),
+                'starts_at' => $now->addDays(9)->setTime(21, 0),
+                'ends_at' => $now->addDays(9)->setTime(22, 40),
                 'status' => 'scheduled',
             ],
             4301 => [
@@ -106,13 +111,11 @@ class DemoBookingSeeder extends Seeder
                 'hall_layout' => $this->buildBlackBoxLayout(),
                 'base_price' => 2400,
                 'currency' => 'RUB',
-                'starts_at' => $now->copy()->addDays(4)->setTime(18, 30),
-                'ends_at' => $now->copy()->addDays(4)->setTime(20, 30),
+                'starts_at' => $now->addDays(4)->setTime(18, 30),
+                'ends_at' => $now->addDays(4)->setTime(20, 30),
                 'status' => 'scheduled',
             ],
         ];
-
-        $this->cleanupDemoData(array_keys($snapshots));
 
         $createdSnapshots = [];
 
@@ -151,16 +154,17 @@ class DemoBookingSeeder extends Seeder
             seatElementIds: ['seat-a4', 'seat-a5'],
             standingSelections: [],
             reservedUntil: null,
-            confirmedAt: $now->copy()->subHours(12),
-            createdAt: $now->copy()->subHours(13),
+            confirmedAt: $now->subHours(12),
+            createdAt: $now->subHours(13),
             paymentData: [
                 'status' => Payment::STATUS_PAID,
                 'external_reference' => 'demo-paid-6101',
-                'paid_at' => $now->copy()->subHours(12),
-                'payload' => ['mode' => 'demo'],
+                'paid_at' => $now->subHours(12),
+                'payload' => ['mode' => 'demo', 'loyalty_case' => 'paid_with_80_percent_points_discount'],
             ],
             ticketDocumentService: $ticketDocumentService,
-            ticketCode: 'SMROCK4101A5',
+            ticketCode: 'SMROOF4101A5',
+            loyaltyPointsSpent: 4480,
         );
 
         $this->createBooking(
@@ -171,9 +175,9 @@ class DemoBookingSeeder extends Seeder
             flowType: Booking::FLOW_RESERVATION,
             seatElementIds: ['seat-a3'],
             standingSelections: [],
-            reservedUntil: $now->copy()->addMinutes(35),
+            reservedUntil: $now->addMinutes(35),
             confirmedAt: null,
-            createdAt: $now->copy()->subMinutes(20),
+            createdAt: $now->subMinutes(20),
             paymentData: null,
             ticketDocumentService: $ticketDocumentService,
         );
@@ -187,17 +191,17 @@ class DemoBookingSeeder extends Seeder
             seatElementIds: ['seat-a1', 'seat-a2'],
             standingSelections: [],
             reservedUntil: null,
-            confirmedAt: $now->copy()->subDays(7)->addHour(),
-            createdAt: $now->copy()->subDays(7),
+            confirmedAt: $now->subDays(7)->addHour(),
+            createdAt: $now->subDays(7),
             paymentData: [
                 'status' => Payment::STATUS_PAID,
                 'external_reference' => 'demo-paid-6103',
-                'paid_at' => $now->copy()->subDays(7)->addHour(),
-                'payload' => ['mode' => 'demo'],
+                'paid_at' => $now->subDays(7)->addHour(),
+                'payload' => ['mode' => 'demo', 'loyalty_case' => 'past_purchase_awarded_points'],
             ],
             ticketDocumentService: $ticketDocumentService,
-            ticketCode: 'SMROCK4102A2',
-            ticketUsedAt: $now->copy()->subDays(7)->addHours(4),
+            ticketCode: 'SMROOF4102A2',
+            ticketUsedAt: $now->subDays(7)->addHours(4),
             ticketUsedByOrganizerId: 1101,
         );
 
@@ -210,16 +214,16 @@ class DemoBookingSeeder extends Seeder
             seatElementIds: [],
             standingSelections: ['dancefloor-main' => 4],
             reservedUntil: null,
-            confirmedAt: $now->copy()->subHours(5),
-            createdAt: $now->copy()->subHours(6),
+            confirmedAt: $now->subHours(5),
+            createdAt: $now->subHours(6),
             paymentData: [
                 'status' => Payment::STATUS_PAID,
                 'external_reference' => 'demo-paid-6104',
-                'paid_at' => $now->copy()->subHours(5),
-                'payload' => ['mode' => 'demo'],
+                'paid_at' => $now->subHours(5),
+                'payload' => ['mode' => 'demo', 'loyalty_case' => 'large_order_earned_points'],
             ],
             ticketDocumentService: $ticketDocumentService,
-            ticketCode: 'SMROCK4101DF',
+            ticketCode: 'SMROOF4101DF',
         );
 
         $this->createBooking(
@@ -231,16 +235,17 @@ class DemoBookingSeeder extends Seeder
             seatElementIds: ['vip-e1'],
             standingSelections: [],
             reservedUntil: null,
-            confirmedAt: $now->copy()->subDay()->setTime(21, 10),
-            createdAt: $now->copy()->subDay()->setTime(20, 55),
+            confirmedAt: $now->subDay()->setTime(21, 10),
+            createdAt: $now->subDay()->setTime(20, 55),
             paymentData: [
                 'status' => Payment::STATUS_PAID,
                 'external_reference' => 'demo-paid-6201',
-                'paid_at' => $now->copy()->subDay()->setTime(21, 10),
-                'payload' => ['mode' => 'demo'],
+                'paid_at' => $now->subDay()->setTime(21, 10),
+                'payload' => ['mode' => 'demo', 'loyalty_case' => 'partial_points_discount'],
             ],
             ticketDocumentService: $ticketDocumentService,
-            ticketCode: 'SMCOM4201VIP',
+            ticketCode: 'SMSTAND4201VIP',
+            loyaltyPointsSpent: 1000,
         );
 
         $this->createBooking(
@@ -251,34 +256,35 @@ class DemoBookingSeeder extends Seeder
             flowType: Booking::FLOW_PURCHASE,
             seatElementIds: ['seat-c1'],
             standingSelections: [],
-            reservedUntil: $now->copy()->addMinutes(45),
+            reservedUntil: $now->addMinutes(45),
             confirmedAt: null,
-            createdAt: $now->copy()->subMinutes(10),
+            createdAt: $now->subMinutes(10),
             paymentData: [
                 'status' => Payment::STATUS_PENDING,
                 'external_reference' => 'demo-pending-6202',
                 'confirmation_url' => 'http://127.0.0.1:5173/checkout/6202',
-                'payload' => ['mode' => 'demo-checkout'],
+                'payload' => ['mode' => 'demo-checkout', 'loyalty_case' => 'points_spent_until_payment_finishes'],
             ],
             ticketDocumentService: $ticketDocumentService,
+            loyaltyPointsSpent: 1000,
         );
 
         $this->createBooking(
             snapshot: $createdSnapshots[4202],
             bookingId: 6203,
-            userId: 1202,
+            userId: 1203,
             status: Booking::STATUS_EXPIRED,
             flowType: Booking::FLOW_PURCHASE,
             seatElementIds: ['seat-c2'],
             standingSelections: [],
             reservedUntil: null,
             confirmedAt: null,
-            createdAt: $now->copy()->subDays(2),
+            createdAt: $now->subDays(2),
             paymentData: [
                 'status' => Payment::STATUS_FAILED,
                 'external_reference' => 'demo-failed-6203',
                 'failure_reason' => 'Пользователь не завершил оплату в течение лимита времени.',
-                'cancelled_at' => $now->copy()->subDays(2)->addMinutes(20),
+                'cancelled_at' => $now->subDays(2)->addMinutes(20),
                 'payload' => ['mode' => 'demo-timeout'],
             ],
             ticketDocumentService: $ticketDocumentService,
@@ -294,59 +300,118 @@ class DemoBookingSeeder extends Seeder
             standingSelections: [],
             reservedUntil: null,
             confirmedAt: null,
-            createdAt: $now->copy()->subDays(3),
+            createdAt: $now->subDays(3),
             paymentData: [
                 'status' => Payment::STATUS_CANCELLED,
                 'external_reference' => 'demo-cancelled-6301',
                 'failure_reason' => 'Пользователь отменил оплату на demo checkout.',
-                'cancelled_at' => $now->copy()->subDays(3)->addMinutes(15),
+                'cancelled_at' => $now->subDays(3)->addMinutes(15),
                 'payload' => ['mode' => 'demo-cancel'],
             ],
             ticketDocumentService: $ticketDocumentService,
         );
+
+        $this->createBooking(
+            snapshot: $createdSnapshots[4301],
+            bookingId: 6401,
+            userId: null,
+            status: Booking::STATUS_CONFIRMED,
+            flowType: Booking::FLOW_PURCHASE,
+            seatElementIds: ['seat-f2'],
+            standingSelections: [],
+            reservedUntil: null,
+            confirmedAt: $now->subHours(2),
+            createdAt: $now->subHours(3),
+            paymentData: [
+                'status' => Payment::STATUS_PAID,
+                'external_reference' => 'demo-guest-paid-6401',
+                'paid_at' => $now->subHours(2),
+                'payload' => ['mode' => 'demo', 'guest_checkout' => true],
+            ],
+            ticketDocumentService: $ticketDocumentService,
+            ticketCode: 'SMGUEST4301F2',
+            customerEmail: 'guest.ticket@example.com',
+            guestAccessToken: 'demo_guest_access_token_6401_please_show_ticket',
+            ticketSentAt: $now->subHours(2)->addMinutes(2),
+        );
     }
 
-    /**
-     * @param  array<int, int>  $eventSessionIds
-     */
-    private function cleanupDemoData(array $eventSessionIds): void
+    private function cleanupDemoData(): void
     {
-        $snapshots = SessionSnapshot::query()
-            ->whereIn('event_session_id', $eventSessionIds)
-            ->get();
+        $ticketPaths = Booking::query()
+            ->whereNotNull('ticket_pdf_path')
+            ->pluck('ticket_pdf_path')
+            ->filter()
+            ->all();
 
-        foreach ($snapshots as $snapshot) {
-            $ticketPaths = Booking::query()
-                ->where('session_snapshot_id', $snapshot->id)
-                ->whereNotNull('ticket_pdf_path')
-                ->pluck('ticket_pdf_path')
-                ->filter()
-                ->all();
+        foreach ($ticketPaths as $ticketPath) {
+            Storage::disk((string) config('payments.tickets.disk', 'local'))->delete($ticketPath);
+        }
 
-            foreach ($ticketPaths as $ticketPath) {
-                Storage::disk((string) config('payments.tickets.disk', 'local'))->delete($ticketPath);
-            }
+        Payment::query()->delete();
+        BookingItem::query()->delete();
+        Booking::query()->delete();
+        LoyaltyPointAccount::query()->delete();
+        SessionSeat::query()->delete();
+        SessionStandingArea::query()->delete();
+        SessionSnapshot::query()->delete();
+    }
 
-            $snapshot->delete();
+    private function seedLoyaltyAccounts(): void
+    {
+        $now = now();
+
+        $accounts = [
+            [
+                'user_id' => 1201,
+                'balance' => 6000,
+                'earned_total' => 6000,
+                'spent_total' => 0,
+            ],
+            [
+                'user_id' => 1202,
+                'balance' => 1200,
+                'earned_total' => 1200,
+                'spent_total' => 0,
+            ],
+            [
+                'user_id' => 1203,
+                'balance' => 350,
+                'earned_total' => 350,
+                'spent_total' => 0,
+            ],
+        ];
+
+        foreach ($accounts as $account) {
+            LoyaltyPointAccount::query()->create([
+                ...$account,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
         }
     }
 
     private function createBooking(
         SessionSnapshot $snapshot,
         int $bookingId,
-        int $userId,
+        ?int $userId,
         string $status,
         string $flowType,
         array $seatElementIds,
         array $standingSelections,
-        ?\Illuminate\Support\Carbon $reservedUntil,
-        ?\Illuminate\Support\Carbon $confirmedAt,
-        \Illuminate\Support\Carbon $createdAt,
+        ?\Carbon\CarbonInterface $reservedUntil,
+        ?\Carbon\CarbonInterface $confirmedAt,
+        \Carbon\CarbonInterface $createdAt,
         ?array $paymentData,
         TicketDocumentService $ticketDocumentService,
         ?string $ticketCode = null,
-        ?\Illuminate\Support\Carbon $ticketUsedAt = null,
+        ?\Carbon\CarbonInterface $ticketUsedAt = null,
         ?int $ticketUsedByOrganizerId = null,
+        ?string $customerEmail = null,
+        ?string $guestAccessToken = null,
+        int $loyaltyPointsSpent = 0,
+        ?int $loyaltyPointsEarned = null,
+        ?\Carbon\CarbonInterface $ticketSentAt = null,
     ): void {
         $seatMap = SessionSeat::query()
             ->where('session_snapshot_id', $snapshot->id)
@@ -376,17 +441,41 @@ class DemoBookingSeeder extends Seeder
             }
         }
 
+        $subtotalAmount = round($totalAmount, 2);
+        $maxPointsDiscount = (int) floor($subtotalAmount * ((float) config('booking.loyalty_max_discount_percent', 80) / 100));
+        $loyaltyPointsSpent = $userId !== null
+            ? min($loyaltyPointsSpent, $maxPointsDiscount, (int) floor($subtotalAmount))
+            : 0;
+        $discountAmount = (float) $loyaltyPointsSpent;
+        $totalAmount = round(max(0, $subtotalAmount - $discountAmount), 2);
+        $loyaltyPointsEarned ??= ($userId !== null
+            && $flowType === Booking::FLOW_PURCHASE
+            && !in_array($status, [Booking::STATUS_CANCELLED, Booking::STATUS_EXPIRED], true))
+            ? (int) floor($subtotalAmount * ((float) config('booking.loyalty_earn_percent', 15) / 100))
+            : 0;
+        $loyaltyPointsAwardedAt = $status === Booking::STATUS_CONFIRMED && $userId !== null && $loyaltyPointsEarned > 0
+            ? ($confirmedAt ?? $createdAt)
+            : null;
+
         $booking = Booking::unguarded(fn () => Booking::query()->create([
             'id' => $bookingId,
             'user_id' => $userId,
+            'customer_email' => $customerEmail,
+            'guest_access_token' => $guestAccessToken,
             'session_snapshot_id' => $snapshot->id,
             'status' => $status,
             'flow_type' => $flowType,
-            'total_amount' => round($totalAmount, 2),
+            'subtotal_amount' => $subtotalAmount,
+            'discount_amount' => $discountAmount,
+            'loyalty_points_spent' => $loyaltyPointsSpent,
+            'loyalty_points_earned' => $loyaltyPointsEarned,
+            'loyalty_points_awarded_at' => $loyaltyPointsAwardedAt,
+            'total_amount' => $totalAmount,
             'currency' => 'RUB',
             'ticket_code' => $ticketCode,
             'reserved_until' => $reservedUntil,
             'confirmed_at' => $confirmedAt,
+            'ticket_sent_at' => $ticketSentAt,
             'cancelled_at' => $status === Booking::STATUS_CANCELLED ? $createdAt->copy()->addMinutes(15) : null,
         ]));
 
@@ -465,7 +554,7 @@ class DemoBookingSeeder extends Seeder
                 'booking_id' => $booking->id,
                 'provider' => 'mock',
                 'status' => $paymentData['status'],
-                'amount' => round($totalAmount, 2),
+                'amount' => $totalAmount,
                 'currency' => 'RUB',
                 'external_reference' => $paymentData['external_reference'] ?? null,
                 'confirmation_url' => $paymentData['confirmation_url'] ?? null,
@@ -482,6 +571,12 @@ class DemoBookingSeeder extends Seeder
             ])->save();
         }
 
+        $this->applySeededLoyaltyEffects(
+            userId: $userId,
+            loyaltyPointsSpent: $loyaltyPointsSpent,
+            loyaltyPointsEarned: $loyaltyPointsAwardedAt !== null ? $loyaltyPointsEarned : 0,
+        );
+
         if ($status === Booking::STATUS_CONFIRMED) {
             $issuedBooking = $ticketDocumentService->issueForBooking(
                 $booking->fresh(['snapshot', 'items.seat', 'items.standingArea', 'payment'])
@@ -494,6 +589,24 @@ class DemoBookingSeeder extends Seeder
                 ]);
             }
         }
+    }
+
+    private function applySeededLoyaltyEffects(?int $userId, int $loyaltyPointsSpent, int $loyaltyPointsEarned): void
+    {
+        if ($userId === null || ($loyaltyPointsSpent < 1 && $loyaltyPointsEarned < 1)) {
+            return;
+        }
+
+        $account = LoyaltyPointAccount::query()->firstOrCreate(
+            ['user_id' => $userId],
+            ['balance' => 0, 'earned_total' => 0, 'spent_total' => 0],
+        );
+
+        $account->update([
+            'balance' => max(0, $account->balance - $loyaltyPointsSpent) + $loyaltyPointsEarned,
+            'earned_total' => $account->earned_total + $loyaltyPointsEarned,
+            'spent_total' => $account->spent_total + $loyaltyPointsSpent,
+        ]);
     }
 
     /**

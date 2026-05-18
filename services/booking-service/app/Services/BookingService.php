@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Booking;
 use App\Models\BookingItem;
+use App\Models\LoyaltyPointAccount;
 use App\Models\Payment;
 use App\Models\SessionSeat;
 use App\Models\SessionSnapshot;
@@ -26,6 +27,7 @@ class BookingService
         private readonly PaymentGatewayInterface $paymentGateway,
         private readonly TicketDocumentService $ticketDocumentService,
         private readonly TicketDispatchService $ticketDispatchService,
+        private readonly TicketEmailService $ticketEmailService,
     ) {
     }
 
@@ -70,6 +72,7 @@ class BookingService
         int $sessionId,
         array $seatElementIds,
         array $standingSelections,
+        int $loyaltyPointsToSpend = 0,
     ): Booking {
         $booking = $this->createReservation(
             authUser: $authUser,
@@ -77,9 +80,36 @@ class BookingService
             seatElementIds: $seatElementIds,
             standingSelections: $standingSelections,
             flowType: Booking::FLOW_PURCHASE,
+            customerEmail: $this->resolveCustomerEmail($authUser),
+            loyaltyPointsToSpend: $loyaltyPointsToSpend,
         );
 
         return $this->initiatePaymentForBooking($authUser, $booking->id);
+    }
+
+    /**
+     * @param  array<int, string>  $seatElementIds
+     * @param  array<int, array{element_id: string, quantity: int}>  $standingSelections
+     */
+    public function purchaseGuestBooking(
+        string $customerEmail,
+        ?string $guestBirthDate,
+        int $sessionId,
+        array $seatElementIds,
+        array $standingSelections,
+    ): Booking {
+        $booking = $this->createReservation(
+            authUser: null,
+            sessionId: $sessionId,
+            seatElementIds: $seatElementIds,
+            standingSelections: $standingSelections,
+            flowType: Booking::FLOW_PURCHASE,
+            customerEmail: $customerEmail,
+            guestAccessToken: Str::random(64),
+            guestBirthDate: $guestBirthDate,
+        );
+
+        return $this->initiateGuestPaymentForBooking($booking->id, (string) $booking->guest_access_token);
     }
 
     /**
@@ -137,6 +167,49 @@ class BookingService
         }, 3);
     }
 
+    public function initiateGuestPaymentForBooking(int $bookingId, string $guestAccessToken): Booking
+    {
+        return DB::transaction(function () use ($bookingId, $guestAccessToken): Booking {
+            $booking = $this->findGuestBookingForUpdate($bookingId, $guestAccessToken);
+
+            if ($booking->status === Booking::STATUS_CONFIRMED) {
+                return $this->ensureTicketIssued($booking);
+            }
+
+            if ($booking->status === Booking::STATUS_CANCELLED || $booking->status === Booking::STATUS_EXPIRED) {
+                throw ValidationException::withMessages([
+                    'booking' => ['Only active bookings can be paid.'],
+                ]);
+            }
+
+            if ($booking->reserved_until !== null && $booking->reserved_until->isPast()) {
+                $this->releaseBooking($booking, Booking::STATUS_EXPIRED);
+
+                throw ValidationException::withMessages([
+                    'booking' => ['This booking reservation has expired.'],
+                ]);
+            }
+
+            $booking->loadMissing('snapshot');
+            $this->ensureSnapshotIsBookable($booking->snapshot);
+
+            $gatewayResult = $this->paymentGateway->createPayment(
+                idempotenceKey: (string) Str::uuid(),
+                amount: (float) $booking->total_amount,
+                currency: $booking->currency,
+                description: $this->buildPaymentDescription($booking),
+                returnUrl: $this->buildPaymentReturnUrl($booking),
+                metadata: [
+                    'booking_id' => (string) $booking->id,
+                    'guest_email' => (string) $booking->customer_email,
+                    'event_session_id' => (string) $booking->snapshot?->event_session_id,
+                ],
+            );
+
+            return $this->applyGatewayResultToBooking($booking, $gatewayResult);
+        }, 3);
+    }
+
     /**
      * @param  array<string, mixed>  $authUser
      */
@@ -153,6 +226,29 @@ class BookingService
             if ($booking === null) {
                 throw (new ModelNotFoundException())->setModel(Booking::class, [$bookingId]);
             }
+
+            if ($booking->status === Booking::STATUS_CONFIRMED) {
+                return $this->ensureTicketIssued($booking);
+            }
+
+            $payment = $booking->payment;
+
+            if ($payment === null || $payment->external_reference === null) {
+                throw ValidationException::withMessages([
+                    'payment' => ['Payment has not been initiated for this booking yet.'],
+                ]);
+            }
+
+            $gatewayResult = $this->paymentGateway->getPayment($payment->external_reference);
+
+            return $this->applyGatewayResultToBooking($booking, $gatewayResult);
+        }, 3);
+    }
+
+    public function refreshGuestPaymentForBooking(int $bookingId, string $guestAccessToken): Booking
+    {
+        return DB::transaction(function () use ($bookingId, $guestAccessToken): Booking {
+            $booking = $this->findGuestBookingForUpdate($bookingId, $guestAccessToken);
 
             if ($booking->status === Booking::STATUS_CONFIRMED) {
                 return $this->ensureTicketIssued($booking);
@@ -229,6 +325,39 @@ class BookingService
         }, 3);
     }
 
+    public function cancelGuestBooking(int $bookingId, string $guestAccessToken): Booking
+    {
+        return DB::transaction(function () use ($bookingId, $guestAccessToken): Booking {
+            $booking = $this->findGuestBookingForUpdate($bookingId, $guestAccessToken);
+
+            if ($booking->status === Booking::STATUS_CANCELLED) {
+                return $booking->fresh(['snapshot', 'items.seat', 'items.standingArea', 'payment']);
+            }
+
+            if (!in_array($booking->status, [Booking::STATUS_RESERVED, Booking::STATUS_PAYMENT_PENDING], true)) {
+                throw ValidationException::withMessages([
+                    'booking' => ['Only unpaid bookings can be cancelled.'],
+                ]);
+            }
+
+            $this->releaseBooking($booking, Booking::STATUS_CANCELLED);
+
+            return $booking->fresh(['snapshot', 'items.seat', 'items.standingArea', 'payment']);
+        }, 3);
+    }
+
+    public function getLoyaltyAccountForUser(int $userId): LoyaltyPointAccount
+    {
+        return LoyaltyPointAccount::query()->firstOrCreate(
+            ['user_id' => $userId],
+            [
+                'balance' => 0,
+                'earned_total' => 0,
+                'spent_total' => 0,
+            ],
+        );
+    }
+
     public function ensureTicketIssued(Booking $booking): Booking
     {
         return DB::transaction(function () use ($booking): Booking {
@@ -242,7 +371,13 @@ class BookingService
                 return $lockedBooking;
             }
 
-            return $this->ticketDocumentService->issueForBooking($lockedBooking);
+            $issuedBooking = $this->ticketDocumentService->issueForBooking($lockedBooking);
+
+            DB::afterCommit(function () use ($issuedBooking): void {
+                $this->ticketEmailService->sendTicket($issuedBooking);
+            });
+
+            return $issuedBooking;
         }, 3);
     }
 
@@ -369,15 +504,19 @@ class BookingService
      * @param  array<int, array{element_id: string, quantity: int}>  $standingSelections
      */
     private function createReservation(
-        array $authUser,
+        ?array $authUser,
         int $sessionId,
         array $seatElementIds,
         array $standingSelections,
         string $flowType,
+        ?string $customerEmail = null,
+        ?string $guestAccessToken = null,
+        ?string $guestBirthDate = null,
+        int $loyaltyPointsToSpend = 0,
     ): Booking {
         $snapshot = $this->snapshotSynchronizer->syncByEventSessionId($sessionId);
 
-        return DB::transaction(function () use ($authUser, $snapshot, $seatElementIds, $standingSelections, $flowType): Booking {
+        return DB::transaction(function () use ($authUser, $snapshot, $seatElementIds, $standingSelections, $flowType, $customerEmail, $guestAccessToken, $guestBirthDate, $loyaltyPointsToSpend): Booking {
             $lockedSnapshot = SessionSnapshot::query()
                 ->whereKey($snapshot->id)
                 ->lockForUpdate()
@@ -385,7 +524,7 @@ class BookingService
 
             $this->expirePendingBookingsForSnapshot($lockedSnapshot->id);
             $this->ensureSnapshotIsBookable($lockedSnapshot);
-            $this->ensureUserMeetsAgeRequirement($authUser, $lockedSnapshot);
+            $this->ensureCustomerMeetsAgeRequirement($authUser, $guestBirthDate, $lockedSnapshot);
 
             $seatElementIds = array_values(array_unique($seatElementIds));
             $standingSelections = $this->deduplicateStandingSelections($standingSelections);
@@ -441,13 +580,28 @@ class BookingService
             }
 
             $reservedUntil = now()->addMinutes((int) config('booking.reservation_ttl_minutes', 15));
-            $totalAmount = $this->calculateTotalAmount($seats, $standingSelections, $standingAreas);
+            $subtotalAmount = $this->calculateTotalAmount($seats, $standingSelections, $standingAreas);
+            [$discountAmount, $loyaltyPointsSpent] = $this->applyLoyaltyPoints(
+                authUser: $authUser,
+                subtotalAmount: $subtotalAmount,
+                requestedPoints: $loyaltyPointsToSpend,
+            );
+            $totalAmount = round(max(0, $subtotalAmount - $discountAmount), 2);
+            $loyaltyPointsEarned = $authUser !== null
+                ? $this->calculateLoyaltyPointsEarned($subtotalAmount)
+                : 0;
 
             $booking = Booking::query()->create([
-                'user_id' => (int) $authUser['id'],
+                'user_id' => $authUser !== null ? (int) $authUser['id'] : null,
+                'customer_email' => $customerEmail ?: $this->resolveCustomerEmail($authUser),
+                'guest_access_token' => $guestAccessToken,
                 'session_snapshot_id' => $lockedSnapshot->id,
                 'status' => Booking::STATUS_RESERVED,
                 'flow_type' => $flowType,
+                'subtotal_amount' => $subtotalAmount,
+                'discount_amount' => $discountAmount,
+                'loyalty_points_spent' => $loyaltyPointsSpent,
+                'loyalty_points_earned' => $loyaltyPointsEarned,
                 'total_amount' => $totalAmount,
                 'currency' => (string) config('booking.currency', 'RUB'),
                 'reserved_until' => $reservedUntil,
@@ -589,6 +743,9 @@ class BookingService
             ]);
         }
 
+        $booking = $booking->fresh(['snapshot', 'items', 'payment']);
+        $this->awardLoyaltyPoints($booking);
+
         if ($this->ticketDispatchService->shouldIssueSynchronously()) {
             return $this->ensureTicketIssued($booking->fresh(['snapshot', 'items', 'payment']));
         }
@@ -650,17 +807,28 @@ class BookingService
     {
         if ($this->paymentGateway->providerName() === 'mock') {
             $checkoutBaseUrl = rtrim((string) config('payments.checkout_url', 'http://127.0.0.1:5173/checkout'), '/');
+            $url = $checkoutBaseUrl . '/' . $booking->id;
 
-            return $checkoutBaseUrl . '/' . $booking->id;
+            if ($booking->guest_access_token !== null) {
+                $url .= '?' . http_build_query(['guest_token' => $booking->guest_access_token]);
+            }
+
+            return $url;
         }
 
         $baseUrl = trim((string) config('payments.return_url', 'http://127.0.0.1:5173/profile'));
         $separator = str_contains($baseUrl, '?') ? '&' : '?';
 
-        return $baseUrl . $separator . http_build_query([
+        $query = [
             'booking' => $booking->id,
             'payment' => 'return',
-        ]);
+        ];
+
+        if ($booking->guest_access_token !== null) {
+            $query['guest_token'] = $booking->guest_access_token;
+        }
+
+        return $baseUrl . $separator . http_build_query($query);
     }
 
     private function ensureSnapshotIsBookable(SessionSnapshot $snapshot): void
@@ -679,9 +847,9 @@ class BookingService
     }
 
     /**
-     * @param  array<string, mixed>  $authUser
+     * @param  array<string, mixed>|null  $authUser
      */
-    private function ensureUserMeetsAgeRequirement(array $authUser, SessionSnapshot $snapshot): void
+    private function ensureCustomerMeetsAgeRequirement(?array $authUser, ?string $guestBirthDate, SessionSnapshot $snapshot): void
     {
         $minimumAge = (int) $snapshot->event_min_age;
 
@@ -689,11 +857,13 @@ class BookingService
             return;
         }
 
-        $birthDate = $authUser['birth_date'] ?? null;
+        $birthDate = $authUser['birth_date'] ?? $guestBirthDate;
 
         if (!is_string($birthDate) || trim($birthDate) === '') {
+            $field = $authUser === null ? 'guest_birth_date' : 'user';
+
             throw ValidationException::withMessages([
-                'user' => ['Birth date is required to validate the age restriction.'],
+                $field => ['Birth date is required to validate the age restriction.'],
             ]);
         }
 
@@ -704,6 +874,125 @@ class BookingService
                 'user' => ["This event is available only for users aged {$minimumAge}+."],
             ]);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $authUser
+     */
+    private function resolveCustomerEmail(?array $authUser): ?string
+    {
+        $email = $authUser['email'] ?? null;
+
+        return is_string($email) && trim($email) !== ''
+            ? trim($email)
+            : null;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $authUser
+     * @return array{0: float, 1: int}
+     */
+    private function applyLoyaltyPoints(?array $authUser, float $subtotalAmount, int $requestedPoints): array
+    {
+        if ($authUser === null || $requestedPoints < 1 || $subtotalAmount <= 0) {
+            return [0.0, 0];
+        }
+
+        $userId = (int) $authUser['id'];
+        $this->getLoyaltyAccountForUser($userId);
+
+        $account = LoyaltyPointAccount::query()
+            ->where('user_id', $userId)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $maxDiscountByRule = (int) floor($subtotalAmount * ((float) config('booking.loyalty_max_discount_percent', 80) / 100));
+        $pointsToSpend = min($requestedPoints, $account->balance, $maxDiscountByRule);
+
+        if ($pointsToSpend < 1) {
+            return [0.0, 0];
+        }
+
+        $account->update([
+            'balance' => $account->balance - $pointsToSpend,
+            'spent_total' => $account->spent_total + $pointsToSpend,
+        ]);
+
+        return [(float) $pointsToSpend, $pointsToSpend];
+    }
+
+    private function calculateLoyaltyPointsEarned(float $subtotalAmount): int
+    {
+        if ($subtotalAmount <= 0) {
+            return 0;
+        }
+
+        return (int) floor($subtotalAmount * ((float) config('booking.loyalty_earn_percent', 15) / 100));
+    }
+
+    private function awardLoyaltyPoints(Booking $booking): void
+    {
+        if (
+            $booking->user_id === null ||
+            (int) $booking->loyalty_points_earned < 1 ||
+            $booking->loyalty_points_awarded_at !== null
+        ) {
+            return;
+        }
+
+        $account = $this->getLoyaltyAccountForUser((int) $booking->user_id);
+        $account = LoyaltyPointAccount::query()
+            ->whereKey($account->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $points = (int) $booking->loyalty_points_earned;
+
+        $account->update([
+            'balance' => $account->balance + $points,
+            'earned_total' => $account->earned_total + $points,
+        ]);
+
+        $booking->update([
+            'loyalty_points_awarded_at' => now(),
+        ]);
+    }
+
+    private function refundLoyaltyPoints(Booking $booking): void
+    {
+        if ($booking->user_id === null || (int) $booking->loyalty_points_spent < 1) {
+            return;
+        }
+
+        $account = $this->getLoyaltyAccountForUser((int) $booking->user_id);
+        $account = LoyaltyPointAccount::query()
+            ->whereKey($account->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $points = (int) $booking->loyalty_points_spent;
+
+        $account->update([
+            'balance' => $account->balance + $points,
+            'spent_total' => max(0, $account->spent_total - $points),
+        ]);
+    }
+
+    private function findGuestBookingForUpdate(int $bookingId, string $guestAccessToken): Booking
+    {
+        $booking = Booking::query()
+            ->with(['snapshot', 'items', 'payment'])
+            ->whereKey($bookingId)
+            ->where('guest_access_token', $guestAccessToken)
+            ->whereNull('user_id')
+            ->lockForUpdate()
+            ->first();
+
+        if ($booking === null) {
+            throw (new ModelNotFoundException())->setModel(Booking::class, [$bookingId]);
+        }
+
+        return $booking;
     }
 
     /**
@@ -763,6 +1052,8 @@ class BookingService
     private function releaseBooking(Booking $booking, string $targetStatus): void
     {
         $booking->loadMissing(['items', 'payment']);
+
+        $this->refundLoyaltyPoints($booking);
 
         $seatIds = $booking->items
             ->where('item_type', BookingItem::TYPE_SEAT)

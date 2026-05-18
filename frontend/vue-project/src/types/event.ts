@@ -16,6 +16,7 @@ export interface EventTag {
   id: number
   name: string
   slug: string
+  system?: boolean
 }
 
 export interface EventOrganizer {
@@ -35,6 +36,9 @@ export interface EventSummaryBase {
   tags: EventTag[]
   organizer: EventOrganizer | null
   is_wanted: boolean
+  is_teaser: boolean
+  has_available_sessions: boolean
+  teaser_reason: string | null
 }
 
 export interface PublicEvent extends EventSummaryBase {}
@@ -54,8 +58,9 @@ export interface EventSessionHallSummary {
   name: string | null
   address: string | null
   description: string | null
-  organizer_id: number | null
+  venue_owner_id: number | null
   status: string | null
+  hourly_rate?: number | string | null
   capacities: HallCapacities | null
   layout_meta: HallLayoutMeta | null
 }
@@ -64,6 +69,7 @@ export interface EventSession {
   id: number
   event_id: number
   hall_id: number
+  hall_rental_request_id?: number | null
   hall?: EventSessionHallSummary | null
   start_time: string | null
   end_time: string | null
@@ -95,6 +101,7 @@ export type EventSort = 'newest' | 'oldest' | 'title_asc' | 'title_desc'
 export interface EventListFilters {
   search?: string
   category?: string
+  tag?: string
   age?: number
   sort?: EventSort
   page?: number
@@ -130,12 +137,25 @@ export interface OrganizerEventMutationResponse {
   event: OrganizerEvent
 }
 
+export interface OrganizerEventCopywriterPayload {
+  title: string
+  description: string | null
+  category_id: number | null
+  age_rating_id: number | null
+  tags: string[]
+}
+
+export interface OrganizerEventCopywriterResponse {
+  message: string
+  description: string
+  tips: string[]
+  mode: 'ai' | 'fallback'
+}
+
 export type OrganizerSessionStatus = 'scheduled' | 'cancelled' | 'completed'
 
 export interface OrganizerSessionPayload {
-  hall_id: number
-  start_time: string
-  end_time: string
+  hall_rental_request_id: number
   base_price: number
 }
 

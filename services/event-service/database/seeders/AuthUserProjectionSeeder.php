@@ -9,11 +9,13 @@ class AuthUserProjectionSeeder extends Seeder
 {
     public function run(): void
     {
-        $organizers = [
+        AuthUser::query()->delete();
+
+        $authUsers = [
             [
                 'auth_user_id' => 1101,
                 'full_name' => 'Марина Соколова',
-                'company_name' => 'ДКХ',
+                'company_name' => 'ДКХ Booking',
                 'email' => 'dkh@submeet.local',
                 'phone' => '+79990002101',
                 'birth_date' => null,
@@ -24,7 +26,7 @@ class AuthUserProjectionSeeder extends Seeder
             [
                 'auth_user_id' => 1102,
                 'full_name' => 'Артем Воронов',
-                'company_name' => 'Milo Concert Hall',
+                'company_name' => 'Milo Live',
                 'email' => 'milo@submeet.local',
                 'phone' => '+79990002102',
                 'birth_date' => null,
@@ -54,23 +56,35 @@ class AuthUserProjectionSeeder extends Seeder
                 'role_id' => 2,
                 'status' => 0,
             ],
+            [
+                'auth_user_id' => 1151,
+                'full_name' => 'Виктор Платонов',
+                'company_name' => 'Arena Spaces',
+                'email' => 'arena@submeet.local',
+                'phone' => '+79990002201',
+                'birth_date' => null,
+                'role' => 'venue_owner',
+                'role_id' => 3,
+                'status' => 1,
+            ],
+            [
+                'auth_user_id' => 1152,
+                'full_name' => 'Дарья Кравцова',
+                'company_name' => 'Roofline Venues',
+                'email' => 'roof@submeet.local',
+                'phone' => '+79990002202',
+                'birth_date' => null,
+                'role' => 'venue_owner',
+                'role_id' => 3,
+                'status' => 1,
+            ],
         ];
 
-        foreach ($organizers as $organizer) {
-            AuthUser::query()->updateOrCreate(
-                ['auth_user_id' => $organizer['auth_user_id']],
-                [
-                    'full_name' => $organizer['full_name'],
-                    'company_name' => $organizer['company_name'],
-                    'email' => $organizer['email'],
-                    'phone' => $organizer['phone'],
-                    'birth_date' => $organizer['birth_date'],
-                    'role' => $organizer['role'],
-                    'role_id' => $organizer['role_id'],
-                    'status' => $organizer['status'],
-                    'synced_at' => now(),
-                ]
-            );
+        foreach ($authUsers as $authUser) {
+            AuthUser::query()->create([
+                ...$authUser,
+                'synced_at' => now(),
+            ]);
         }
     }
 }

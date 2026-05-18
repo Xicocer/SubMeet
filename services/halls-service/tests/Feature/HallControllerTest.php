@@ -13,7 +13,7 @@ class HallControllerTest extends TestCase
     public function test_show_returns_active_hall_details(): void
     {
         $hall = Hall::query()->create([
-            'organizer_id' => 44,
+            'venue_owner_id' => 44,
             'name' => 'Arena',
             'address' => 'Нижний Новгород, ул. Алексеевская, 4',
             'description' => 'Active hall for public booking.',

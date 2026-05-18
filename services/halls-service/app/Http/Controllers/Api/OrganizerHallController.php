@@ -23,7 +23,7 @@ class OrganizerHallController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $organizer = $request->attributes->get('auth_user');
+        $venueOwner = $request->attributes->get('auth_user');
 
         $validated = $request->validate([
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
@@ -32,7 +32,7 @@ class OrganizerHallController extends Controller
         ]);
 
         $halls = Hall::query()
-            ->where('organizer_id', $organizer['id'])
+            ->where('venue_owner_id', $venueOwner['id'])
             ->when(
                 $validated['status'] ?? null,
                 fn (Builder $query, string $status) => $query->where('status', $status)
@@ -51,14 +51,15 @@ class OrganizerHallController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $organizer = $request->attributes->get('auth_user');
+        $venueOwner = $request->attributes->get('auth_user');
         [$validated, $summary] = $this->validateHallPayload($request);
 
         $hall = Hall::query()->create([
-            'organizer_id' => $organizer['id'],
+            'venue_owner_id' => $venueOwner['id'],
             'name' => $validated['name'],
             'address' => $validated['address'],
             'description' => $validated['description'] ?? null,
+            'hourly_rate' => $validated['hourly_rate'],
             'layout' => $validated['layout'],
             'seat_capacity' => $summary['seat_capacity'],
             'vip_capacity' => $summary['vip_capacity'],
@@ -75,23 +76,24 @@ class OrganizerHallController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $organizer = $request->attributes->get('auth_user');
-        $hall = $this->findOrganizerHallOrFail($id, $organizer['id']);
+        $venueOwner = $request->attributes->get('auth_user');
+        $hall = $this->findVenueHallOrFail($id, $venueOwner['id']);
 
         return response()->json($this->transformHallDetails($hall));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $organizer = $request->attributes->get('auth_user');
+        $venueOwner = $request->attributes->get('auth_user');
         [$validated, $summary] = $this->validateHallPayload($request);
 
-        $hall = $this->findOrganizerHallOrFail($id, $organizer['id']);
+        $hall = $this->findVenueHallOrFail($id, $venueOwner['id']);
 
         $hall->update([
             'name' => $validated['name'],
             'address' => $validated['address'],
             'description' => $validated['description'] ?? null,
+            'hourly_rate' => $validated['hourly_rate'],
             'layout' => $validated['layout'],
             'seat_capacity' => $summary['seat_capacity'],
             'vip_capacity' => $summary['vip_capacity'],
@@ -108,10 +110,9 @@ class OrganizerHallController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $organizer = $request->attributes->get('auth_user');
-        $hall = $this->findOrganizerHallOrFail($id, $organizer['id']);
-        $token = $this->requireBearerToken($request);
-        $usage = $this->loadHallUsage($token, $hall->id);
+        $venueOwner = $request->attributes->get('auth_user');
+        $hall = $this->findVenueHallOrFail($id, $venueOwner['id']);
+        $usage = $this->loadHallUsage($hall->id);
 
         if ((bool) ($usage['has_future_sessions'] ?? false)) {
             throw ValidationException::withMessages([
@@ -138,6 +139,7 @@ class OrganizerHallController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'hourly_rate' => ['required', 'numeric', 'min:0'],
             'status' => ['nullable', 'in:draft,active'],
             'layout' => ['required', 'array'],
             'layout.canvas' => ['nullable', 'array'],
@@ -166,32 +168,21 @@ class OrganizerHallController extends Controller
         return [$validated, $summary];
     }
 
-    private function findOrganizerHallOrFail(int $hallId, int $organizerId): Hall
+    private function findVenueHallOrFail(int $hallId, int $venueOwnerId): Hall
     {
         return Hall::query()
             ->whereKey($hallId)
-            ->where('organizer_id', $organizerId)
+            ->where('venue_owner_id', $venueOwnerId)
             ->firstOrFail();
-    }
-
-    private function requireBearerToken(Request $request): string
-    {
-        $token = $request->bearerToken();
-
-        if ($token === null || $token === '') {
-            abort(401, 'Missing bearer token.');
-        }
-
-        return $token;
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function loadHallUsage(string $token, int $hallId): array
+    private function loadHallUsage(int $hallId): array
     {
         try {
-            return $this->eventServiceClient->getOrganizerHallUsage($token, $hallId) ?? [];
+            return $this->eventServiceClient->getHallUsage($hallId) ?? [];
         } catch (ConnectionException $exception) {
             throw new ServiceUnavailableHttpException(null, 'Event service is unavailable.', $exception);
         }
@@ -210,8 +201,9 @@ class OrganizerHallController extends Controller
             'name' => $hall->name,
             'address' => $hall->address,
             'description' => $hall->description,
-            'organizer_id' => $hall->organizer_id,
+            'venue_owner_id' => $hall->venue_owner_id,
             'status' => $hall->status,
+            'hourly_rate' => (float) $hall->hourly_rate,
             'capacities' => [
                 'seat' => $hall->seat_capacity,
                 'vip' => $hall->vip_capacity,

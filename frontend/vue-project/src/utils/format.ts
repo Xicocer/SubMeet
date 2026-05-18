@@ -8,6 +8,7 @@ export const formatDate = (value?: string | null) => {
   }
 
   return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'UTC',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
@@ -24,6 +25,7 @@ export const formatDateTime = (value?: string | null) => {
   }
 
   return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'UTC',
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
@@ -54,9 +56,9 @@ export const formatDateForInput = (value?: string | null) => {
     return ''
   }
 
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
+  const year = date.getUTCFullYear()
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getUTCDate()}`.padStart(2, '0')
 
   return `${year}-${month}-${day}`
 }
@@ -70,11 +72,11 @@ export const formatDateTimeForInput = (value?: string | null) => {
     return ''
   }
 
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  const hours = `${date.getHours()}`.padStart(2, '0')
-  const minutes = `${date.getMinutes()}`.padStart(2, '0')
+  const year = date.getUTCFullYear()
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getUTCDate()}`.padStart(2, '0')
+  const hours = `${date.getUTCHours()}`.padStart(2, '0')
+  const minutes = `${date.getUTCMinutes()}`.padStart(2, '0')
 
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }

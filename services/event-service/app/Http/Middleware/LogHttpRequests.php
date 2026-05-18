@@ -61,14 +61,16 @@ class LogHttpRequests
             return;
         }
 
+        $route = $request->route();
+
         Log::info('http_request', [
             'service' => config('app.name'),
             'request_id' => $requestId,
             'method' => $request->method(),
             'path' => '/' . ltrim($request->path(), '/'),
             'query_string' => $request->getQueryString(),
-            'route_name' => $request->route()?->getName(),
-            'route_uri' => method_exists($request->route(), 'uri') ? $request->route()?->uri() : null,
+            'route_name' => $route?->getName(),
+            'route_uri' => $route && method_exists($route, 'uri') ? $route->uri() : null,
             'status_code' => $statusCode,
             'duration_ms' => $durationMs,
             'ip' => $request->ip(),

@@ -26,7 +26,19 @@ const resolveTargetRoute = () => {
     return redirect
   }
 
-  return authStore.isOrganizer ? '/organizer/events' : '/profile'
+  if (authStore.isAdmin) {
+    return '/admin/dashboard'
+  }
+
+  if (authStore.isOrganizer) {
+    return '/organizer/events'
+  }
+
+  if (authStore.isVenueOwner) {
+    return '/venue/halls'
+  }
+
+  return '/profile'
 }
 
 const login = async () => {
@@ -47,11 +59,11 @@ const login = async () => {
     <div class="grid lg:grid-cols-[0.92fr_1.08fr]">
       <div class="border-b border-white/60 bg-[linear-gradient(145deg,rgba(37,99,235,0.08),rgba(255,255,255,0.88))] px-8 py-10 lg:border-b-0 lg:border-r lg:px-10">
         <h2 class="text-4xl font-semibold leading-tight text-slate-950">
-          Возвращайся к афише, бронированию и своему аккаунту без лишних шагов.
+          Возвращайся к афише, бронированию и рабочим кабинетам без лишних шагов.
         </h2>
         <p class="mt-4 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-          Войди по email и паролю, чтобы продолжить выбор событий, управлять бронированиями или
-          открыть кабинет организатора.
+          Войди по email и паролю, чтобы продолжить выбор событий, управлять бронями,
+          создавать мероприятия или обрабатывать заявки на аренду площадок.
         </p>
       </div>
 

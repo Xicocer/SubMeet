@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     booking_service_url: str = "http://127.0.0.1:8003/api"
     internal_api_key: str = "submeet-internal-key"
     request_timeout_seconds: float = 10.0
-    live_data_cache_seconds: int = 30
+    live_data_cache_seconds: int = 180
+    recommendation_cache_seconds: int = 45
     persist_live_datasets: bool = True
 
     ml_workspace: Path = Field(default=DEFAULT_ML_WORKSPACE)

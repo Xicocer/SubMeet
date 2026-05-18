@@ -18,6 +18,7 @@ class EventSession extends Model
     protected $fillable = [
         'event_id',
         'hall_id',
+        'hall_rental_request_id',
         'start_time',
         'end_time',
         'base_price',
@@ -29,6 +30,7 @@ class EventSession extends Model
         return [
             'event_id' => 'integer',
             'hall_id' => 'integer',
+            'hall_rental_request_id' => 'integer',
             'start_time' => 'datetime',
             'end_time' => 'datetime',
             'base_price' => 'decimal:2',
