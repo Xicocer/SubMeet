@@ -15,6 +15,7 @@ import {
 } from '@/api/events'
 import {
   createOrganizerHallRentalRequest,
+  getHallAvailabilityRequest,
   getOrganizerHallRentalRequestsRequest,
   getPublicHallsRequest,
 } from '@/api/halls'
@@ -29,10 +30,58 @@ import type {
   OrganizerSessionPayload,
   PaginatedResponse,
 } from '@/types/event'
-import type { HallRentalRequest, HallRentalRequestStatus, HallSummary } from '@/types/hall'
+import type { HallAvailabilityDay, HallAvailabilityResponse, HallRentalRequest, HallRentalRequestStatus, HallSummary } from '@/types/hall'
 import { formatDateTime, formatPrice } from '@/utils/format'
 
 const authStore = useAuthStore()
+const pad2 = (value: number) => String(value).padStart(2, '0')
+const toDateKey = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+const toMonthValue = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`
+const parseDateKey = (dateKey: string) => {
+  const [year = 1970, month = 1, day = 1] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+const getMonthRange = (monthValue: string) => {
+  const [year = new Date().getFullYear(), month = new Date().getMonth() + 1] = monthValue.split('-').map(Number)
+  const firstDay = new Date(year, month - 1, 1)
+  const lastDay = new Date(year, month, 0)
+
+  return {
+    firstDay,
+    lastDay,
+    from: toDateKey(firstDay),
+    to: toDateKey(lastDay),
+  }
+}
+const formatDateKey = (dateKey: string) => {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+  }).format(parseDateKey(dateKey))
+}
+const formatCalendarMonth = (monthValue: string) => {
+  const { firstDay } = getMonthRange(monthValue)
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    month: 'long',
+    year: 'numeric',
+  }).format(firstDay)
+}
+const datesBetween = (leftDateKey: string, rightDateKey: string) => {
+  const start = parseDateKey(leftDateKey)
+  const end = parseDateKey(rightDateKey)
+  const from = start <= end ? start : end
+  const to = start <= end ? end : start
+  const dates: string[] = []
+  const cursor = new Date(from)
+
+  while (cursor <= to) {
+    dates.push(toDateKey(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return dates
+}
 
 const categories = ref<Category[]>([])
 const ageRatings = ref<AgeRating[]>([])
@@ -48,6 +97,9 @@ const rentalRequestsLoading = ref(false)
 const sessionsLoading = ref(false)
 const eventSaving = ref(false)
 const rentalRequestSaving = ref(false)
+const rentalCalendarOpen = ref(false)
+const rentalCalendarLoading = ref(false)
+const rentalCalendarError = ref('')
 const sessionSaving = ref(false)
 const copywriting = ref(false)
 const copywriterTips = ref<string[]>([])
@@ -99,6 +151,13 @@ const createRentalRequestDraft = () => ({
 const eventForm = reactive(createEventDraft())
 const sessionForm = reactive(createSessionDraft())
 const rentalRequestForm = reactive(createRentalRequestDraft())
+const hallAvailability = ref<HallAvailabilityResponse | null>(null)
+const rentalCalendarMonth = ref(toMonthValue(new Date()))
+const rentalRangeAnchor = ref<string | null>(null)
+const selectedRentalDates = ref<string[]>([])
+const rentalSlotStartTime = ref('19:00')
+const rentalSlotEndTime = ref('22:00')
+const weekDayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
 const activeEvent = computed(() => events.value.find((event) => event.id === selectedEventId.value) ?? null)
 const canManageSessions = computed(() => activeEvent.value?.status === 'published')
@@ -106,6 +165,48 @@ const selectedPublicHall = computed(() => publicHalls.value.find((hall) => hall.
 const availableApprovedRequests = computed(() => rentalRequests.value.filter((request) => request.status === 'approved'))
 const activeRentalRequest = computed(() => {
   return availableApprovedRequests.value.find((request) => request.id === Number(sessionForm.hall_rental_request_id)) ?? null
+})
+const availabilityByDate = computed(() => {
+  return new Map((hallAvailability.value?.days ?? []).map((day) => [day.date, day]))
+})
+const selectedRentalDateSet = computed(() => new Set(selectedRentalDates.value))
+const rentalCalendarCells = computed<Array<HallAvailabilityDay | null>>(() => {
+  const { firstDay } = getMonthRange(rentalCalendarMonth.value)
+  const leadingEmptyDays = (firstDay.getDay() + 6) % 7
+
+  return [
+    ...Array.from({ length: leadingEmptyDays }, () => null),
+    ...(hallAvailability.value?.days ?? []),
+  ]
+})
+const selectedRentalDatesLabel = computed(() => {
+  if (selectedRentalDates.value.length === 0) {
+    return 'Даты еще не выбраны'
+  }
+
+  if (selectedRentalDates.value.length === 1) {
+    return formatDateKey(selectedRentalDates.value[0] ?? '')
+  }
+
+  return `${formatDateKey(selectedRentalDates.value[0] ?? '')} — ${formatDateKey(selectedRentalDates.value.at(-1) ?? selectedRentalDates.value[0] ?? '')}`
+})
+const hasValidRentalSlotTimes = computed(() => {
+  return rentalSlotStartTime.value.trim() !== ''
+    && rentalSlotEndTime.value.trim() !== ''
+    && rentalSlotStartTime.value < rentalSlotEndTime.value
+})
+const hasBlockedSelectedDates = computed(() => {
+  return selectedRentalDates.value.some((dateKey) => {
+    const day = availabilityByDate.value.get(dateKey)
+
+    return day !== undefined && day.status !== 'free'
+  })
+})
+const rentalSlots = computed(() => {
+  return selectedRentalDates.value.map((dateKey) => ({
+    requested_start: `${dateKey}T${rentalSlotStartTime.value}`,
+    requested_end: `${dateKey}T${rentalSlotEndTime.value}`,
+  }))
 })
 
 const draftCount = computed(() => events.value.filter((event) => event.status === 'draft').length)
@@ -170,10 +271,10 @@ const canRewriteDescription = computed(() => {
 const canSubmitRentalRequest = computed(() => {
   return (
     activeEvent.value !== null &&
-    String(rentalRequestForm.hall_id).trim() !== '' &&
-    rentalRequestForm.requested_start.trim() !== '' &&
-    rentalRequestForm.requested_end.trim() !== '' &&
-    new Date(rentalRequestForm.requested_start).getTime() < new Date(rentalRequestForm.requested_end).getTime()
+    selectedPublicHall.value !== null &&
+    selectedRentalDates.value.length > 0 &&
+    hasValidRentalSlotTimes.value &&
+    !hasBlockedSelectedDates.value
   )
 })
 
@@ -311,6 +412,140 @@ const resetCopywriterPreview = () => {
 
 const resetRentalRequestForm = () => {
   Object.assign(rentalRequestForm, createRentalRequestDraft())
+  selectedRentalDates.value = []
+  rentalRangeAnchor.value = null
+  hallAvailability.value = null
+  rentalCalendarError.value = ''
+}
+
+const selectHallForRental = (hallId: number) => {
+  rentalRequestForm.hall_id = String(hallId)
+  selectedRentalDates.value = []
+  rentalRangeAnchor.value = null
+  hallAvailability.value = null
+  rentalCalendarError.value = ''
+}
+
+const loadHallAvailability = async () => {
+  if (!selectedPublicHall.value) {
+    return
+  }
+
+  rentalCalendarLoading.value = true
+  rentalCalendarError.value = ''
+
+  try {
+    const range = getMonthRange(rentalCalendarMonth.value)
+    hallAvailability.value = await getHallAvailabilityRequest(selectedPublicHall.value.id, {
+      from: range.from,
+      to: range.to,
+    })
+  } catch (requestError) {
+    console.error(requestError)
+    rentalCalendarError.value = extractErrorMessage(requestError, 'Не удалось загрузить календарь доступности площадки.')
+    hallAvailability.value = null
+  } finally {
+    rentalCalendarLoading.value = false
+  }
+}
+
+const openRentalCalendar = async () => {
+  if (!activeEvent.value) {
+    error.value = 'Сначала выбери или сохрани мероприятие.'
+    return
+  }
+
+  if (!selectedPublicHall.value) {
+    error.value = 'Сначала выбери площадку из списка слева.'
+    return
+  }
+
+  error.value = ''
+  success.value = ''
+  rentalCalendarOpen.value = true
+  await loadHallAvailability()
+}
+
+const closeRentalCalendar = () => {
+  rentalCalendarOpen.value = false
+  rentalCalendarError.value = ''
+}
+
+const changeRentalCalendarMonth = async (offset: number) => {
+  const { firstDay } = getMonthRange(rentalCalendarMonth.value)
+  firstDay.setMonth(firstDay.getMonth() + offset)
+  rentalCalendarMonth.value = toMonthValue(firstDay)
+  await loadHallAvailability()
+}
+
+const dayStatusLabel = (day: HallAvailabilityDay | null) => {
+  if (!day) {
+    return ''
+  }
+
+  switch (day.status) {
+    case 'booked':
+      return 'Занято'
+    case 'unavailable':
+      return 'Недоступно'
+    default:
+      return 'Свободно'
+  }
+}
+
+const dayButtonClasses = (day: HallAvailabilityDay | null) => {
+  if (!day) {
+    return 'invisible'
+  }
+
+  const isSelected = selectedRentalDateSet.value.has(day.date)
+
+  if (isSelected) {
+    return 'border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/20'
+  }
+
+  switch (day.status) {
+    case 'booked':
+      return 'border-blue-200 bg-blue-100 text-blue-800 cursor-not-allowed'
+    case 'unavailable':
+      return 'border-emerald-200 bg-emerald-100 text-emerald-800 cursor-not-allowed'
+    default:
+      return 'border-slate-200 bg-white text-slate-900 hover:border-slate-950 hover:bg-slate-50'
+  }
+}
+
+const selectRentalCalendarDay = (day: HallAvailabilityDay | null) => {
+  if (!day) {
+    return
+  }
+
+  if (day.status !== 'free') {
+    rentalCalendarError.value = day.status === 'booked'
+      ? 'Этот день уже занят подтвержденной арендой площадки.'
+      : 'Этот день площадка отметила недоступным.'
+    return
+  }
+
+  rentalCalendarError.value = ''
+
+  if (rentalRangeAnchor.value === null || selectedRentalDates.value.length > 1) {
+    rentalRangeAnchor.value = day.date
+    selectedRentalDates.value = [day.date]
+    return
+  }
+
+  const nextRange = datesBetween(rentalRangeAnchor.value, day.date)
+  const blockedDay = nextRange.find((dateKey) => availabilityByDate.value.get(dateKey)?.status !== 'free')
+
+  if (blockedDay) {
+    rentalCalendarError.value = `В выбранном диапазоне есть занятый или недоступный день: ${formatDateKey(blockedDay)}.`
+    selectedRentalDates.value = [day.date]
+    rentalRangeAnchor.value = day.date
+    return
+  }
+
+  selectedRentalDates.value = nextRange
+  rentalRangeAnchor.value = null
 }
 
 const startCreateEvent = () => {
@@ -607,7 +842,7 @@ const changeEventStatus = async (status: Extract<OrganizerEventStatus, 'cancelle
 
 const submitRentalRequest = async () => {
   if (!activeEvent.value || !canSubmitRentalRequest.value) {
-    error.value = 'Выбери площадку и укажи корректный интервал аренды.'
+    rentalCalendarError.value = 'Выбери свободные даты и корректное время аренды.'
     return
   }
 
@@ -619,17 +854,17 @@ const submitRentalRequest = async () => {
     const response = await createOrganizerHallRentalRequest({
       hall_id: Number(rentalRequestForm.hall_id),
       event_id: activeEvent.value.id,
-      requested_start: rentalRequestForm.requested_start,
-      requested_end: rentalRequestForm.requested_end,
+      requested_slots: rentalSlots.value,
       organizer_message: rentalRequestForm.organizer_message.trim() || null,
     })
 
     success.value = response.message
+    rentalCalendarOpen.value = false
     resetRentalRequestForm()
     await loadRentalRequests(activeEvent.value.id)
   } catch (requestError) {
     console.error(requestError)
-    error.value = extractErrorMessage(requestError, 'Не удалось отправить заявку на аренду площадки.')
+    rentalCalendarError.value = extractErrorMessage(requestError, 'Не удалось отправить заявку на аренду площадки.')
   } finally {
     rentalRequestSaving.value = false
   }
@@ -776,6 +1011,141 @@ onMounted(async () => {
           <button type="button" class="primary-button justify-center" @click="applyCopywriterPreview">
             Заменить описание
           </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="rentalCalendarOpen"
+      class="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
+      @click.self="closeRentalCalendar"
+    >
+      <section class="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/70 bg-white p-6 shadow-2xl shadow-slate-950/25 sm:p-8">
+        <div class="flex flex-col gap-5 border-b border-slate-200 pb-6 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <span class="info-chip">Календарь площадки</span>
+            <h3 class="mt-4 text-3xl font-semibold text-slate-950">
+              Выбор дат для заявки
+            </h3>
+            <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+              Выбери один день или диапазон дней. Для каждого выбранного дня будет создана отдельная заявка, а владелец площадки сможет подтвердить или отклонить ее.
+            </p>
+          </div>
+
+          <button type="button" class="secondary-button px-4 py-2.5" @click="closeRentalCalendar">
+            Закрыть
+          </button>
+        </div>
+
+        <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
+          <div class="rounded-[1.75rem] border border-slate-200 bg-slate-50/70 p-5">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                  {{ selectedPublicHall?.name || 'Площадка' }}
+                </p>
+                <h4 class="mt-2 text-2xl font-semibold capitalize text-slate-950">
+                  {{ formatCalendarMonth(rentalCalendarMonth) }}
+                </h4>
+              </div>
+
+              <div class="flex gap-2">
+                <button type="button" class="secondary-button px-4 py-2.5" @click="changeRentalCalendarMonth(-1)">
+                  Назад
+                </button>
+                <button type="button" class="secondary-button px-4 py-2.5" @click="changeRentalCalendarMonth(1)">
+                  Вперед
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-5 grid grid-cols-3 gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-4 lg:grid-cols-7">
+              <div class="rounded-2xl border border-blue-200 bg-blue-100 px-3 py-2 text-blue-800">Синий: занято</div>
+              <div class="rounded-2xl border border-emerald-200 bg-emerald-100 px-3 py-2 text-emerald-800">Зеленый: недоступно</div>
+              <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700">Белый: свободно</div>
+            </div>
+
+            <div v-if="rentalCalendarError" class="message-error mt-5">
+              {{ rentalCalendarError }}
+            </div>
+
+            <div v-if="rentalCalendarLoading" class="mt-6 grid grid-cols-7 gap-2">
+              <div v-for="item in 35" :key="item" class="h-20 animate-pulse rounded-2xl bg-slate-100"></div>
+            </div>
+
+            <template v-else>
+              <div class="mt-6 grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <span v-for="label in weekDayLabels" :key="label">{{ label }}</span>
+              </div>
+
+              <div class="mt-3 grid grid-cols-7 gap-2">
+                <button
+                  v-for="(day, index) in rentalCalendarCells"
+                  :key="day?.date || `empty-${index}`"
+                  type="button"
+                  class="min-h-[4.75rem] overflow-hidden rounded-2xl border p-2 text-left transition"
+                  :class="dayButtonClasses(day)"
+                  :disabled="!day || day.status !== 'free'"
+                  @click="selectRentalCalendarDay(day)"
+                >
+                  <template v-if="day">
+                    <span class="text-base font-semibold">{{ Number(day.date.slice(-2)) }}</span>
+                    <span class="mt-1 block max-w-full truncate text-[0.56rem] font-bold uppercase tracking-[0.08em] opacity-75 sm:text-[0.6rem]">
+                      {{ dayStatusLabel(day) }}
+                    </span>
+                  </template>
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <aside class="space-y-4">
+            <div class="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-sm shadow-slate-900/5">
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Выбранные даты</p>
+              <p class="mt-3 text-lg font-semibold text-slate-950">
+                {{ selectedRentalDatesLabel }}
+              </p>
+              <p class="mt-2 text-sm leading-6 text-slate-500">
+                Первый клик выбирает старт, второй клик собирает диапазон. Если нужен новый диапазон, выбери дату еще раз.
+              </p>
+            </div>
+
+            <div class="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-sm shadow-slate-900/5">
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Время аренды</p>
+              <div class="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <label class="field-label" for="rental-slot-start">Начало</label>
+                  <input id="rental-slot-start" v-model="rentalSlotStartTime" type="time" class="field-input" />
+                </div>
+                <div>
+                  <label class="field-label" for="rental-slot-end">Конец</label>
+                  <input id="rental-slot-end" v-model="rentalSlotEndTime" type="time" class="field-input" />
+                </div>
+              </div>
+              <p v-if="!hasValidRentalSlotTimes" class="mt-3 text-sm text-rose-600">
+                Время окончания должно быть позже времени начала.
+              </p>
+            </div>
+
+            <div class="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-sm shadow-slate-900/5">
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Комментарий</p>
+              <textarea
+                v-model="rentalRequestForm.organizer_message"
+                rows="5"
+                class="field-input mt-4 resize-none"
+                placeholder="Например: нужен монтаж за час до старта, ожидаем камерный концерт на 150 гостей."
+              ></textarea>
+            </div>
+
+            <button
+              type="button"
+              class="primary-button w-full justify-center"
+              :disabled="rentalRequestSaving || !canSubmitRentalRequest"
+              @click="submitRentalRequest"
+            >
+              {{ rentalRequestSaving ? 'Отправляем...' : `Отправить ${selectedRentalDates.length || ''} заявок` }}
+            </button>
+          </aside>
         </div>
       </section>
     </div>
@@ -1117,7 +1487,7 @@ onMounted(async () => {
                     <button
                       type="button"
                       class="secondary-button"
-                      @click="rentalRequestForm.hall_id = String(hall.id)"
+                      @click="selectHallForRental(hall.id)"
                     >
                       {{ Number(rentalRequestForm.hall_id) === hall.id ? 'Площадка выбрана' : 'Выбрать для заявки' }}
                     </button>
@@ -1131,7 +1501,7 @@ onMounted(async () => {
             </div>
 
             <div class="space-y-6">
-              <form class="rounded-[1.6rem] border border-slate-200 bg-white p-6 shadow-sm shadow-slate-900/5" @submit.prevent="submitRentalRequest">
+              <form class="rounded-[1.6rem] border border-slate-200 bg-white p-6 shadow-sm shadow-slate-900/5" @submit.prevent="openRentalCalendar">
                 <div>
                   <span class="info-chip">Заявка на аренду</span>
                   <h4 class="mt-4 text-2xl font-semibold text-slate-950">
@@ -1152,14 +1522,13 @@ onMounted(async () => {
                 </div>
 
                 <div class="mt-5 grid gap-4">
-                  <div>
-                    <label class="field-label" for="request-start">Начало аренды</label>
-                    <input id="request-start" v-model="rentalRequestForm.requested_start" type="datetime-local" class="field-input" />
-                  </div>
-
-                  <div>
-                    <label class="field-label" for="request-end">Окончание аренды</label>
-                    <input id="request-end" v-model="rentalRequestForm.requested_end" type="datetime-local" class="field-input" />
+                  <div class="rounded-[1.5rem] border border-dashed border-slate-200 bg-white px-5 py-4">
+                    <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                      Даты выбираются в календаре
+                    </p>
+                    <p class="mt-2 text-sm leading-6 text-slate-500">
+                      Синий день уже занят подтвержденной арендой, зеленый недоступен по графику площадки, белый можно выбрать для заявки.
+                    </p>
                   </div>
 
                   <div>
@@ -1178,8 +1547,8 @@ onMounted(async () => {
                   <button type="button" class="secondary-button" @click="resetRentalRequestForm">
                     Сбросить
                   </button>
-                  <button :disabled="rentalRequestSaving || !canSubmitRentalRequest" type="submit" class="primary-button sm:min-w-56">
-                    {{ rentalRequestSaving ? 'Отправляем...' : 'Отправить заявку площадке' }}
+                  <button :disabled="!activeEvent || !selectedPublicHall" type="submit" class="primary-button sm:min-w-56">
+                    Открыть календарь и отправить заявку
                   </button>
                 </div>
               </form>

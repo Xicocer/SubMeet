@@ -37,6 +37,7 @@ const nextSession = computed(() => sessions.value[0] ?? null)
 const isTeaser = computed(() => Boolean(event.value?.is_teaser) || (
   event.value?.has_available_sessions === false && sessions.value.length === 0
 ))
+const tentativeDates = computed(() => event.value?.tentative_dates ?? [])
 
 const minimumPrice = computed(() => {
   if (sessions.value.length === 0) {
@@ -73,6 +74,17 @@ const sessionCountLabel = computed(() => {
 
   return `${sessions.value.length} открытых сеансов`
 })
+
+const tentativeDateStatusLabel = (status: string | null) => {
+  switch (status) {
+    case 'approved':
+      return 'площадка подтвердила'
+    case 'pending':
+      return 'ожидает ответа площадки'
+    default:
+      return 'дата уточняется'
+  }
+}
 
 const loadEventDetails = async () => {
   if (Number.isNaN(eventId.value)) {
@@ -401,7 +413,19 @@ watch(eventId, loadEventDetails, { immediate: true })
           v-if="isTeaser"
           class="mt-8 rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-5 text-sm leading-6 text-amber-900"
         >
-          Это тизер: событие уже прошло публикацию, но организатор еще не открыл сеансы. Добавь его в «Хочу сходить», и в профиле будет видно, когда появится ближайшая дата и цена.
+          <p>
+            Это тизер: событие уже прошло публикацию, но организатор еще не открыл сеансы. Добавь его в «Хочу сходить», и в профиле будет видно, когда появится ближайшая дата и цена.
+          </p>
+
+          <div v-if="tentativeDates.length > 0" class="mt-4 rounded-[1.25rem] border border-amber-200 bg-white/70 px-4 py-4">
+            <p class="font-semibold text-amber-950">Возможные даты:</p>
+            <ul class="mt-2 space-y-2">
+              <li v-for="date in tentativeDates" :key="date.id ?? `${date.requested_start}-${date.requested_end}`">
+                {{ formatDateTime(date.requested_start) }} — {{ formatDateTime(date.requested_end) }}
+                <span class="text-amber-700">({{ tentativeDateStatusLabel(date.status) }})</span>
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div v-if="sessions.length > 0" class="mt-8 grid gap-4 lg:grid-cols-2">
@@ -433,6 +457,17 @@ watch(eventId, loadEventDetails, { immediate: true })
               <span class="status-badge border-emerald-200 bg-emerald-50 text-emerald-700">
                 {{ session.status }}
               </span>
+            </div>
+
+            <div v-if="session.hall?.photo_urls?.length" class="mt-6 grid gap-3 sm:grid-cols-3">
+              <img
+                v-for="photoUrl in session.hall.photo_urls.slice(0, 3)"
+                :key="photoUrl"
+                :src="photoUrl"
+                :alt="session.hall.name ? `Фото площадки ${session.hall.name}` : 'Фото площадки'"
+                class="h-32 w-full rounded-2xl border border-slate-200 object-cover shadow-sm shadow-slate-900/5"
+                loading="lazy"
+              />
             </div>
 
             <div class="mt-6 grid gap-4 sm:grid-cols-2">

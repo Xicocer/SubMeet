@@ -30,6 +30,7 @@ export interface EventOrganizer {
 export interface EventSummaryBase {
   id: number
   title: string
+  description?: string | null
   poster_url: string | null
   category: Category | null
   age_rating: AgeRating | null
@@ -39,9 +40,24 @@ export interface EventSummaryBase {
   is_teaser: boolean
   has_available_sessions: boolean
   teaser_reason: string | null
+  available_sessions_count?: number | null
+  minimum_price?: number | string | null
+  next_session?: EventSession | null
 }
 
 export interface PublicEvent extends EventSummaryBase {}
+
+export interface EventTentativeDate {
+  id: number | null
+  status: 'pending' | 'approved' | string | null
+  requested_start: string | null
+  requested_end: string | null
+  hall?: {
+    id: number | null
+    name: string | null
+    address: string | null
+  } | null
+}
 
 export interface EventDetails extends EventSummaryBase {
   description: string | null
@@ -49,6 +65,7 @@ export interface EventDetails extends EventSummaryBase {
   status: OrganizerEventStatus
   moderation_note?: string | null
   moderated_at?: string | null
+  tentative_dates?: EventTentativeDate[]
   created_at: string | null
   updated_at: string | null
 }
@@ -58,6 +75,7 @@ export interface EventSessionHallSummary {
   name: string | null
   address: string | null
   description: string | null
+  photo_urls?: string[]
   venue_owner_id: number | null
   status: string | null
   hourly_rate?: number | string | null

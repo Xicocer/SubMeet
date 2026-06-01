@@ -44,6 +44,7 @@ const createHallDraft = () => ({
   name: '',
   address: '',
   description: '',
+  photo_urls: '',
   hourly_rate: '',
   status: 'draft' as EditableHallStatus,
 })
@@ -85,7 +86,6 @@ const canSaveHall = computed(() => {
     hallForm.name.trim() !== '' &&
     hallForm.address.trim() !== '' &&
     Number(String(hallForm.hourly_rate).replace(',', '.')) > 0 &&
-    hasStage.value &&
     layoutSummary.value.totalCapacity > 0
   )
 })
@@ -167,7 +167,7 @@ const paletteItems: Array<{ type: HallElementType; title: string; description: s
   {
     type: 'stage',
     title: 'Сцена',
-    description: 'Обязательный элемент. В MVP поддерживается одна сцена на зал.',
+    description: 'Необязательный ориентир для концертных и театральных залов.',
   },
   {
     type: 'seat',
@@ -184,6 +184,11 @@ const paletteItems: Array<{ type: HallElementType; title: string; description: s
     title: 'Танцпол',
     description: 'Стоячая зона перед сценой с ограничением по вместимости.',
   },
+  {
+    type: 'table',
+    title: 'Столик',
+    description: 'Один объект на схеме, внутри которого можно указать количество мест. По умолчанию 2.',
+  },
 ]
 
 const paletteShortcut = (type: HallElementType) => {
@@ -194,6 +199,8 @@ const paletteShortcut = (type: HallElementType) => {
       return 'VIP'
     case 'dancefloor':
       return 'DF'
+    case 'table':
+      return 'TB'
     default:
       return 'SE'
   }
@@ -207,6 +214,8 @@ const paletteButtonClasses = (type: HallElementType) => {
       return 'border-amber-300/25 bg-amber-300/10 hover:border-amber-300/40 hover:bg-amber-300/15'
     case 'dancefloor':
       return 'border-emerald-300/25 bg-emerald-300/10 hover:border-emerald-300/40 hover:bg-emerald-300/15'
+    case 'table':
+      return 'border-orange-300/25 bg-orange-300/10 hover:border-orange-300/40 hover:bg-orange-300/15'
     default:
       return 'border-sky-300/25 bg-sky-300/10 hover:border-sky-300/40 hover:bg-sky-300/15'
   }
@@ -220,9 +229,22 @@ const elementTypeLabel = (type: HallElementType) => {
       return 'VIP-место'
     case 'dancefloor':
       return 'Танцпол'
+    case 'table':
+      return 'Столик'
     default:
       return 'Место'
   }
+}
+
+const parsePhotoUrls = (value: string) => {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]/)
+        .map((url) => url.trim())
+        .filter((url) => url.length > 0),
+    ),
+  ).slice(0, 8)
 }
 
 const extractErrorMessage = (requestError: any, fallback: string) => {
@@ -252,6 +274,7 @@ const fillEditor = (hall: HallDetails) => {
   hallForm.name = hall.name
   hallForm.address = hall.address ?? ''
   hallForm.description = hall.description ?? ''
+  hallForm.photo_urls = (hall.photo_urls ?? []).join('\n')
   hallForm.hourly_rate = String(hall.hourly_rate ?? '')
   hallForm.status = hall.status === 'active' ? 'active' : 'draft'
   layoutDraft.value = normalizeHallLayout(hall.layout)
@@ -329,18 +352,29 @@ const createPlacedElement = (type: HallElementType, x: number, y: number) => {
   const originY = clampToRange(snapToGrid(y - size.height / 2), 0, canvasHeight - size.height)
 
   const defaultLevelId =
-    type === 'seat' || type === 'vip_seat' ? orderedLevels.value[0]?.id ?? null : null
+    type === 'seat' || type === 'vip_seat' || type === 'table'
+      ? orderedLevels.value[0]?.id ?? null
+      : null
 
   const seatLabel = type === 'seat' || type === 'vip_seat' ? getNextSeatLabel(type) : null
+  const tableIndex = type === 'table'
+    ? layoutDraft.value.elements.filter((element) => element.type === 'table').length + 1
+    : null
 
-  return createHallElement(type, {
+  const overrides: Partial<HallLayoutElement> = {
     x: originX,
     y: originY,
     level_id: defaultLevelId,
     row: seatLabel?.row,
     number: seatLabel?.number,
-    label: seatLabel?.label,
-  })
+    label: tableIndex !== null ? `Столик ${tableIndex}` : seatLabel?.label,
+  }
+
+  if (type === 'table') {
+    overrides.capacity = 2
+  }
+
+  return createHallElement(type, overrides)
 }
 
 const ensureElementTypeAllowed = (type: HallElementType) => {
@@ -422,14 +456,14 @@ const moveElementTo = (elementId: string, x: number, y: number) => {
 const resizeElement = (payload: HallCanvasResizePayload) => {
   const element = layoutDraft.value.elements.find((item) => item.id === payload.elementId)
 
-  if (!element || (element.type !== 'stage' && element.type !== 'dancefloor')) {
+  if (!element || (element.type !== 'stage' && element.type !== 'dancefloor' && element.type !== 'table')) {
     return
   }
 
   const canvasWidth = layoutDraft.value.canvas.width
   const canvasHeight = layoutDraft.value.canvas.height
-  const minWidth = element.type === 'stage' ? 160 : 120
-  const minHeight = element.type === 'stage' ? 60 : 80
+  const minWidth = element.type === 'stage' ? 160 : element.type === 'table' ? 70 : 120
+  const minHeight = element.type === 'stage' ? 60 : element.type === 'table' ? 60 : 80
   const nextX = clampToRange(snapToGrid(payload.x), 0, canvasWidth - minWidth)
   const nextY = clampToRange(snapToGrid(payload.y), 0, canvasHeight - minHeight)
   const nextWidth = clampToRange(snapToGrid(payload.width), minWidth, canvasWidth - nextX)
@@ -513,15 +547,8 @@ const removeSelectedElement = () => {
     return
   }
 
-  const removableElements = selectedElements.value.filter((element) => element.type !== 'stage')
-
-  if (removableElements.length === 0) {
-    error.value = 'Сцену нельзя удалить: она обязательна для любого зала.'
-    return
-  }
-
   rememberLayoutState()
-  const removableIds = new Set(removableElements.map((element) => element.id))
+  const removableIds = new Set(selectedElements.value.map((element) => element.id))
   layoutDraft.value.elements = layoutDraft.value.elements.filter((element) => !removableIds.has(element.id))
   selectedElementIds.value = selectedElementIds.value.filter((selectedId) => {
     return layoutDraft.value.elements.some((element) => element.id === selectedId)
@@ -535,7 +562,7 @@ const removeSelectedElement = () => {
 const saveHall = async () => {
   if (!canSaveHall.value) {
     error.value =
-      'Чтобы сохранить зал, добавь название, адрес, сцену и хотя бы одну продаваемую зону.'
+      'Чтобы сохранить зал, добавь название, адрес и хотя бы одну продаваемую зону.'
     return
   }
 
@@ -548,6 +575,7 @@ const saveHall = async () => {
       name: hallForm.name.trim(),
       address: hallForm.address.trim(),
       description: hallForm.description.trim() || null,
+      photo_urls: parsePhotoUrls(hallForm.photo_urls),
       hourly_rate: Number(String(hallForm.hourly_rate).replace(',', '.')),
       status: hallForm.status,
       layout: cloneHallLayout(layoutDraft.value),
@@ -841,6 +869,20 @@ watch(
               </div>
 
               <div>
+                <label class="field-label" for="hall-photos">Фото площадки</label>
+                <textarea
+                  id="hall-photos"
+                  v-model="hallForm.photo_urls"
+                  rows="3"
+                  class="field-input resize-none"
+                  placeholder="Вставь ссылки на фото, каждую с новой строки"
+                ></textarea>
+                <p class="mt-2 text-xs leading-5 text-slate-500">
+                  До 8 изображений. Они появятся в карточке события, чтобы посетитель видел реальное место.
+                </p>
+              </div>
+
+              <div>
                 <label class="field-label" for="hall-hourly-rate">Ставка аренды в час</label>
                 <input
                   id="hall-hourly-rate"
@@ -956,8 +998,20 @@ watch(
                 </div>
               </template>
 
-              <div v-if="selectedElement.type === 'dancefloor'" class="sm:col-span-2">
-                <label class="field-label" for="selected-element-capacity">Вместимость танцпола</label>
+              <div v-if="selectedElement.type === 'table'" class="sm:col-span-2">
+                <label class="field-label" for="selected-element-level">Уровень</label>
+                <select id="selected-element-level" v-model="selectedElement.level_id" class="field-input">
+                  <option :value="null">Без уровня</option>
+                  <option v-for="level in orderedLevels" :key="level.id" :value="level.id">
+                    {{ level.name }}
+                  </option>
+                </select>
+              </div>
+
+              <div v-if="selectedElement.type === 'dancefloor' || selectedElement.type === 'table'" class="sm:col-span-2">
+                <label class="field-label" for="selected-element-capacity">
+                  {{ selectedElement.type === 'table' ? 'Количество мест за столиком' : 'Вместимость танцпола' }}
+                </label>
                 <input
                   id="selected-element-capacity"
                   v-model.number="selectedElement.capacity"
@@ -1041,6 +1095,10 @@ watch(
                 <p class="mt-2 text-2xl font-semibold text-slate-950">{{ layoutSummary.seatCount }}</p>
               </div>
               <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Tables</p>
+                <p class="mt-2 text-2xl font-semibold text-slate-950">{{ layoutSummary.tableCapacity }}</p>
+              </div>
+              <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
                 <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">VIP</p>
                 <p class="mt-2 text-2xl font-semibold text-slate-950">{{ layoutSummary.vipCount }}</p>
               </div>
@@ -1057,9 +1115,9 @@ watch(
             <div class="mt-4 space-y-3 text-sm leading-6">
               <div
                 class="rounded-[1.3rem] border px-4 py-3"
-                :class="hasStage ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'"
+                :class="hasStage ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700'"
               >
-                {{ hasStage ? 'Сцена на месте: базовая валидация проходит.' : 'Добавь сцену: без нее зал не пройдет валидацию.' }}
+                {{ hasStage ? 'Сцена на месте: зал подойдет для классического выступления.' : 'Сцена не добавлена: это допустимо для ресторанов, иммерсивных форматов и залов без фронтальной сцены.' }}
               </div>
 
               <div

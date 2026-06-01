@@ -40,11 +40,11 @@ const getElementStyle = (element: BookingLayoutElement) => {
 }
 
 const isBookable = (element: BookingLayoutElement) => {
-  return element.type === 'seat' || element.type === 'vip_seat' || element.type === 'dancefloor'
+  return element.type === 'seat' || element.type === 'vip_seat' || element.type === 'dancefloor' || element.type === 'table'
 }
 
 const isAvailable = (element: BookingLayoutElement) => {
-  if (element.type === 'dancefloor') {
+  if (element.type === 'dancefloor' || element.type === 'table') {
     return Number(element.capacity_available ?? 0) > 0
   }
 
@@ -74,6 +74,10 @@ const elementClasses = (element: BookingLayoutElement) => {
 
   if (element.type === 'dancefloor') {
     return 'border-cyan-400 bg-cyan-100 text-cyan-950 cursor-pointer hover:border-cyan-500 hover:bg-cyan-200'
+  }
+
+  if (element.type === 'table') {
+    return 'border-orange-400 bg-orange-100 text-orange-950 cursor-pointer hover:border-orange-500 hover:bg-orange-200'
   }
 
   return 'border-blue-500 bg-blue-100 text-blue-950 cursor-pointer hover:border-blue-600 hover:bg-blue-200'
@@ -127,7 +131,7 @@ const onElementClick = (element: BookingLayoutElement) => {
         >
           <div>
             <div>{{ getElementLabel(element) }}</div>
-            <div v-if="element.type === 'dancefloor'" class="mt-1 text-[10px] font-medium opacity-80">
+            <div v-if="element.type === 'dancefloor' || element.type === 'table'" class="mt-1 text-[10px] font-medium opacity-80">
               {{ element.capacity_available ?? 0 }} / {{ element.capacity_total ?? 0 }}
             </div>
           </div>

@@ -10,10 +10,12 @@ import {
   refreshBookingPaymentRequest,
 } from '@/api/booking'
 import { getWantToGoEventsRequest, removeWantToGoRequest } from '@/api/events'
+import { getUserRecommendationsRequest } from '@/api/recommendations'
 import { useAuthStore } from '@/stores/auth'
 import type { UpdateProfilePayload } from '@/types/auth'
 import type { LoyaltyAccountResponse, UserBooking } from '@/types/booking'
 import type { WantToGoEvent } from '@/types/event'
+import type { RecommendationItem } from '@/types/recommendation'
 import {
   formatDate,
   formatDateForInput,
@@ -32,11 +34,13 @@ const cabinetMessage = ref('')
 const cabinetError = ref('')
 const bookingsLoading = ref(false)
 const wantToGoLoading = ref(false)
+const recommendationsLoading = ref(false)
 const bookingActionIds = ref<number[]>([])
 const ticketDownloadIds = ref<number[]>([])
 const wantToGoActionIds = ref<number[]>([])
 const bookings = ref<UserBooking[]>([])
 const wantToGoEvents = ref<WantToGoEvent[]>([])
+const recommendations = ref<RecommendationItem[]>([])
 const loyaltyAccount = ref<LoyaltyAccountResponse | null>(null)
 
 const form = reactive<UpdateProfilePayload>({
@@ -72,6 +76,24 @@ const reservationBookings = computed(() => bookings.value.filter((booking) => bo
 const ticketBookings = computed(() => bookings.value.filter((booking) => booking.status === 'confirmed'))
 const pendingBookings = computed(() => bookings.value.filter((booking) => ['reserved', 'payment_pending'].includes(booking.status)))
 const loyaltyBalance = computed(() => loyaltyAccount.value?.balance ?? 0)
+const sortedCabinetBookings = computed(() => {
+  return [...bookings.value].sort((left, right) => {
+    const leftTime = left.session?.start_time ? new Date(left.session.start_time).getTime() : Number.MAX_SAFE_INTEGER
+    const rightTime = right.session?.start_time ? new Date(right.session.start_time).getTime() : Number.MAX_SAFE_INTEGER
+
+    return leftTime - rightTime
+  })
+})
+const nextPlannedBooking = computed(() => (
+  sortedCabinetBookings.value.find((booking) => ['reserved', 'payment_pending', 'confirmed'].includes(booking.status)) ?? null
+))
+const nextPlannedBookingStatus = computed(() => {
+  if (!nextPlannedBooking.value) {
+    return ''
+  }
+
+  return nextPlannedBooking.value.status === 'confirmed' ? 'Оплачено' : bookingStatusLabel(nextPlannedBooking.value)
+})
 
 const hasChanges = computed(() => {
   if (!user.value) {
@@ -142,6 +164,10 @@ const bookingItemsLabel = (booking: UserBooking) => {
   return booking.items
     .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
     .join(', ')
+}
+
+const recommendationLocation = (item: RecommendationItem) => {
+  return item.venue_address || item.hall_name || item.city || 'Площадка уточняется'
 }
 
 const paymentActionLabel = (booking: UserBooking) => {
@@ -236,6 +262,25 @@ const loadLoyalty = async () => {
   }
 }
 
+const loadRecommendations = async () => {
+  if (isBusinessUser.value || !authStore.user) {
+    recommendations.value = []
+    return
+  }
+
+  recommendationsLoading.value = true
+
+  try {
+    const response = await getUserRecommendationsRequest(authStore.user.id, 4)
+    recommendations.value = response.items
+  } catch (requestError) {
+    console.error(requestError)
+    recommendations.value = []
+  } finally {
+    recommendationsLoading.value = false
+  }
+}
+
 const loadCabinetData = async () => {
   cabinetError.value = ''
 
@@ -243,6 +288,7 @@ const loadCabinetData = async () => {
     loadBookings(),
     loadWantToGo(),
     loadLoyalty(),
+    loadRecommendations(),
   ])
 }
 
@@ -434,134 +480,447 @@ onMounted(loadProfile)
         <div class="h-4 w-60 animate-pulse rounded-full bg-slate-100"></div>
       </div>
     </div>
-    <p class="mt-6 text-sm text-slate-500">Загружаем данные кабинета...</p>
+    <p class="mt-6 text-sm text-slate-500">Загружаем личный кабинет...</p>
   </section>
 
-  <div v-else class="grid gap-6 xl:grid-cols-[340px_1fr]">
-    <aside class="app-panel overflow-hidden">
-      <div class="bg-gradient-to-br from-slate-950 via-slate-900 to-sky-900 px-8 py-8 text-white">
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-white/10 text-2xl font-semibold">
-            {{ initials }}
+  <div v-else class="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <aside class="space-y-6">
+      <section class="app-panel overflow-hidden">
+        <div class="bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900 px-6 py-7 text-white">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-[1.55rem] bg-white/10 text-2xl font-semibold sm:h-20 sm:w-20">
+              {{ initials }}
+            </div>
+
+            <div class="status-badge border-white/15 bg-white/10 text-white/85">
+              {{ statusLabel }}
+            </div>
           </div>
 
-          <div class="status-badge border-white/15 bg-white/10 text-white/85">
-            {{ statusLabel }}
-          </div>
+          <h1 class="mt-5 text-3xl font-semibold leading-tight tracking-[-0.04em]">
+            {{ profileTitle }}
+          </h1>
+          <p class="mt-2 break-words text-sm leading-6 text-white/72">
+            {{ user?.email || 'Email не указан' }}
+          </p>
+          <p v-if="isBusinessUser" class="mt-2 text-sm leading-6 text-white/72">
+            Контактное лицо: {{ user?.full_name || 'Не указано' }}
+          </p>
         </div>
 
-        <h2 class="mt-6 text-3xl font-semibold leading-tight">
-          {{ profileTitle }}
-        </h2>
-        <p class="mt-2 break-words text-sm leading-6 text-white/70">
-          {{ user?.email || 'Email не указан' }}
-        </p>
-        <p v-if="isBusinessUser" class="mt-3 text-sm leading-6 text-white/70">
-          Контактное лицо: {{ user?.full_name || 'Не указано' }}
-        </p>
-      </div>
+        <div class="space-y-4 p-5">
+          <RouterLink
+            v-if="isBusinessUser"
+            :to="businessCabinetRoute"
+            class="primary-button w-full"
+          >
+            {{ businessCabinetLabel }}
+          </RouterLink>
 
-      <div class="space-y-4 p-6">
-        <article class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Роль</p>
-          <p class="mt-3 text-lg font-semibold text-slate-900">{{ roleLabel }}</p>
-        </article>
+          <RouterLink v-else to="/events" class="primary-button w-full">
+            Найти событие
+          </RouterLink>
 
-        <article class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Статус</p>
-          <div class="status-badge mt-3" :class="statusClasses">
-            {{ statusLabel }}
+          <div v-if="!isBusinessUser" class="grid grid-cols-3 gap-2">
+            <article class="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-3 py-4 text-center">
+              <p class="text-2xl font-semibold text-slate-950">{{ ticketBookings.length }}</p>
+              <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Билеты</p>
+            </article>
+            <article class="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-3 py-4 text-center">
+              <p class="text-2xl font-semibold text-slate-950">{{ pendingBookings.length }}</p>
+              <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Брони</p>
+            </article>
+            <article class="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-3 py-4 text-center">
+              <p class="text-2xl font-semibold text-slate-950">{{ wantToGoEvents.length }}</p>
+              <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Хочу</p>
+            </article>
           </div>
-        </article>
+        </div>
+      </section>
 
-        <article class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">В системе с</p>
-          <p class="mt-3 text-sm leading-6 text-slate-600">{{ memberSinceLabel }}</p>
-        </article>
+      <section v-if="!isBusinessUser" class="app-panel border-blue-100 bg-blue-50/70 p-6">
+        <p class="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">Бонусные баллы</p>
+        <p class="mt-4 text-5xl font-semibold tracking-[-0.06em] text-slate-950">{{ loyaltyBalance }}</p>
+        <p class="mt-3 text-sm leading-6 text-blue-950/72">
+          Баллами можно оплатить до {{ loyaltyAccount?.max_discount_percent ?? 80 }}% следующего заказа.
+          После покупки начисляется {{ loyaltyAccount?.earn_percent ?? 15 }}% от суммы.
+        </p>
+      </section>
 
-        <article v-if="!isBusinessUser" class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Хочу сходить</p>
-          <p class="mt-3 text-2xl font-semibold text-slate-950">{{ wantToGoEvents.length }}</p>
-        </article>
-
-        <article v-if="!isBusinessUser" class="soft-card border-blue-100 bg-blue-50/70">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">Бонусные баллы</p>
-          <p class="mt-3 text-3xl font-semibold text-slate-950">{{ loyaltyBalance }}</p>
-          <p class="mt-2 text-sm leading-6 text-blue-900">
-            Ими можно оплатить до {{ loyaltyAccount?.max_discount_percent ?? 80 }}% следующего заказа.
-          </p>
-        </article>
-
-        <article v-if="!isBusinessUser" class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Активные брони</p>
-          <p class="mt-3 text-2xl font-semibold text-slate-950">{{ pendingBookings.length }}</p>
-        </article>
-
-        <article v-if="!isBusinessUser" class="soft-card">
-          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Купленные билеты</p>
-          <p class="mt-3 text-2xl font-semibold text-slate-950">{{ ticketBookings.length }}</p>
-        </article>
-
-        <RouterLink
-          v-if="isBusinessUser"
-          :to="businessCabinetRoute"
-          class="secondary-button w-full"
-        >
-          Открыть кабинет организатора
-        </RouterLink>
-
-        <RouterLink v-else to="/events" class="secondary-button w-full">
-          Перейти в афишу
-        </RouterLink>
-      </div>
+      <section class="app-panel p-6">
+        <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Данные аккаунта</p>
+        <div class="mt-5 space-y-4 text-sm">
+          <div class="flex items-center justify-between gap-4">
+            <span class="text-slate-500">Роль</span>
+            <span class="font-semibold text-slate-950">{{ roleLabel }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <span class="text-slate-500">Статус</span>
+            <span class="status-badge" :class="statusClasses">{{ statusLabel }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <span class="text-slate-500">В системе</span>
+            <span class="font-semibold text-slate-950">{{ memberSinceLabel }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <span class="text-slate-500">Телефон</span>
+            <span class="break-all text-right font-semibold text-slate-950">{{ user?.phone || 'Не указан' }}</span>
+          </div>
+          <div v-if="!isBusinessUser" class="flex items-center justify-between gap-4">
+            <span class="text-slate-500">Дата рождения</span>
+            <span class="font-semibold text-slate-950">{{ formatDate(user?.birth_date) }}</span>
+          </div>
+          <div v-if="isBusinessUser" class="flex items-center justify-between gap-4">
+            <span class="text-slate-500">Компания</span>
+            <span class="break-words text-right font-semibold text-slate-950">{{ user?.organizer_profile?.company_name || 'Не указана' }}</span>
+          </div>
+        </div>
+      </section>
     </aside>
 
     <div class="space-y-6">
-      <section class="app-panel p-8 sm:p-10">
-        <div class="flex flex-col gap-6 border-b border-slate-200/70 pb-8 lg:flex-row lg:items-end lg:justify-between">
-          <div class="max-w-2xl">
-            <span class="info-chip">Личный кабинет</span>
-            <h2 class="mt-4 text-3xl font-semibold leading-tight text-slate-950">
-              Профиль пользователя
-            </h2>
-            <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-              Здесь можно обновить данные аккаунта, следить за бронированиями и скачивать уже оплаченные билеты.
+      <template v-if="!isBusinessUser">
+        <div v-if="cabinetMessage" class="message-success">
+          {{ cabinetMessage }}
+        </div>
+
+        <div v-if="cabinetError" class="message-error">
+          {{ cabinetError }}
+        </div>
+
+        <section class="app-panel overflow-hidden">
+          <div class="grid gap-0 lg:grid-cols-[1fr_18rem]">
+            <div class="p-6 sm:p-8">
+              <span class="info-chip">Следующее мероприятие</span>
+
+              <template v-if="nextPlannedBooking">
+                <div class="mt-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h2 class="text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
+                      {{ nextPlannedBooking.session?.event_title || 'Событие загружается' }}
+                    </h2>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <span class="status-badge" :class="bookingStatusClasses(nextPlannedBooking)">
+                        {{ nextPlannedBookingStatus }}
+                      </span>
+                      <span class="status-badge border-blue-100 bg-blue-50 text-blue-700">
+                        {{ formatPrice(nextPlannedBooking.total_amount) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-6 grid gap-3 md:grid-cols-3">
+                  <article class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Дата</p>
+                    <p class="mt-2 text-sm font-semibold leading-6 text-slate-950">
+                      {{ formatDateTime(nextPlannedBooking.session?.start_time) }}
+                    </p>
+                  </article>
+                  <article class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Площадка</p>
+                    <p class="mt-2 text-sm font-semibold leading-6 text-slate-950">
+                      {{ nextPlannedBooking.session?.hall_address || nextPlannedBooking.session?.hall_name || 'Площадка уточняется' }}
+                    </p>
+                  </article>
+                  <article class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4">
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Места</p>
+                    <p class="mt-2 text-sm font-semibold leading-6 text-slate-950">
+                      {{ bookingItemsLabel(nextPlannedBooking) }}
+                    </p>
+                  </article>
+                </div>
+
+                <div class="mt-6 flex flex-wrap gap-3">
+                  <RouterLink
+                    v-if="nextPlannedBooking.session?.event_id"
+                    :to="`/events/${nextPlannedBooking.session.event_id}`"
+                    class="secondary-button"
+                  >
+                    Перейти к событию
+                  </RouterLink>
+                  <button
+                    v-if="nextPlannedBooking.status === 'confirmed'"
+                    type="button"
+                    class="primary-button"
+                    :disabled="isTicketDownloading(nextPlannedBooking.id)"
+                    @click="downloadTicket(nextPlannedBooking.id)"
+                  >
+                    {{ isTicketDownloading(nextPlannedBooking.id) ? 'Готовим PDF...' : 'Скачать PDF' }}
+                  </button>
+                  <button
+                    v-if="nextPlannedBooking.can_pay"
+                    type="button"
+                    class="primary-button"
+                    :disabled="isBookingActionLoading(nextPlannedBooking.id)"
+                    @click="payBooking(nextPlannedBooking.id)"
+                  >
+                    {{ isBookingActionLoading(nextPlannedBooking.id) ? 'Переходим...' : paymentActionLabel(nextPlannedBooking) }}
+                  </button>
+                </div>
+              </template>
+
+              <template v-else>
+                <h2 class="mt-5 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
+                  Пока нет запланированных событий
+                </h2>
+                <p class="mt-4 max-w-2xl text-sm leading-7 text-slate-500 sm:text-base">
+                  Как только ты забронируешь место или купишь билет, ближайшее мероприятие появится здесь первым.
+                </p>
+                <RouterLink to="/events" class="primary-button mt-6">
+                  Перейти в каталог
+                </RouterLink>
+              </template>
+            </div>
+
+            <div class="flex items-end bg-gradient-to-br from-blue-50 via-slate-50 to-white p-6">
+              <div class="w-full rounded-[1.7rem] border border-white bg-white/80 p-5 shadow-[0_28px_90px_-70px_rgba(37,99,235,0.6)]">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Центр активности</p>
+                <p class="mt-3 text-sm leading-6 text-slate-500">
+                  Здесь собраны билеты, брони, избранное и персональные подсказки.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="recommendationsLoading || recommendations.length > 0" class="app-panel p-6 sm:p-8">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span class="info-chip">Подборка для вас</span>
+              <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">
+                Можно сходить дальше
+              </h3>
+            </div>
+            <RouterLink to="/events" class="secondary-button">
+              Вся афиша
+            </RouterLink>
+          </div>
+
+          <div v-if="recommendationsLoading" class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <article v-for="item in 4" :key="item" class="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white">
+              <div class="h-36 animate-pulse bg-slate-200"></div>
+              <div class="space-y-3 p-4">
+                <div class="h-4 w-24 animate-pulse rounded-full bg-slate-100"></div>
+                <div class="h-6 w-3/4 animate-pulse rounded-full bg-slate-200"></div>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <RouterLink
+              v-for="item in recommendations"
+              :key="item.id"
+              :to="`/events/${item.id}`"
+              class="group overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm shadow-slate-900/5 transition duration-200 hover:-translate-y-1 hover:border-blue-200"
+            >
+              <div class="relative h-36 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900">
+                <img
+                  v-if="item.poster_url"
+                  :src="item.poster_url"
+                  :alt="item.title"
+                  class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+                />
+                <div class="absolute inset-x-0 top-0 flex justify-between p-3">
+                  <span class="rounded-full bg-slate-950/60 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-white">
+                    {{ item.category_name || item.category }}
+                  </span>
+                  <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">
+                    {{ item.age_rating }}+
+                  </span>
+                </div>
+              </div>
+              <div class="p-4">
+                <h4 class="line-clamp-2 text-base font-semibold leading-6 text-slate-950">
+                  {{ item.title }}
+                </h4>
+                <p class="mt-3 text-sm text-slate-500">{{ formatDate(item.event_date) }}</p>
+                <p class="mt-1 text-sm font-semibold text-blue-700">{{ formatPrice(item.price) }}</p>
+                <p class="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">{{ recommendationLocation(item) }}</p>
+              </div>
+            </RouterLink>
+          </div>
+        </section>
+
+        <section class="app-panel p-6 sm:p-8">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span class="info-chip">Мои билеты</span>
+              <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">Купленные билеты</h3>
+            </div>
+            <span class="status-badge border-emerald-200 bg-emerald-50 text-emerald-700">
+              {{ ticketBookings.length }} оплачено
+            </span>
+          </div>
+
+          <div v-if="bookingsLoading" class="mt-6 grid gap-4 lg:grid-cols-2">
+            <article v-for="item in 2" :key="item" class="rounded-[1.75rem] border border-slate-200 bg-white p-6">
+              <div class="h-5 w-28 animate-pulse rounded-full bg-slate-100"></div>
+              <div class="mt-4 h-8 w-2/3 animate-pulse rounded-full bg-slate-200"></div>
+            </article>
+          </div>
+
+          <div v-else-if="ticketBookings.length > 0" class="mt-6 grid gap-4 lg:grid-cols-2">
+            <article v-for="booking in ticketBookings" :key="booking.id" class="rounded-[1.7rem] border border-emerald-200 bg-emerald-50/35 p-5">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Билет #{{ booking.id }}</p>
+                  <h4 class="mt-3 text-2xl font-semibold leading-tight text-slate-950">{{ booking.session?.event_title || 'Событие загружается' }}</h4>
+                </div>
+                <span class="status-badge border-emerald-200 bg-white text-emerald-700">Оплачено</span>
+              </div>
+
+              <div class="mt-5 grid gap-3 sm:grid-cols-2">
+                <div class="rounded-[1.25rem] border border-emerald-100 bg-white p-4">
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Дата</p>
+                  <p class="mt-2 text-sm font-semibold text-slate-950">{{ formatDateTime(booking.session?.start_time) }}</p>
+                  <p class="mt-2 text-sm text-slate-500">{{ booking.session?.hall_address || booking.session?.hall_name || 'Площадка уточняется' }}</p>
+                </div>
+                <div class="rounded-[1.25rem] border border-emerald-100 bg-white p-4">
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Место</p>
+                  <p class="mt-2 text-sm font-semibold text-slate-950">{{ bookingItemsLabel(booking) }}</p>
+                  <p class="mt-2 text-sm text-slate-500">Код: {{ booking.ticket?.code || 'Формируется' }}</p>
+                </div>
+              </div>
+
+              <div class="mt-5 flex flex-wrap gap-3">
+                <RouterLink v-if="booking.session?.event_id" :to="`/events/${booking.session.event_id}`" class="secondary-button">
+                  Перейти к событию
+                </RouterLink>
+                <button type="button" class="primary-button" :disabled="isTicketDownloading(booking.id)" @click="downloadTicket(booking.id)">
+                  {{ isTicketDownloading(booking.id) ? 'Готовим PDF...' : 'Скачать PDF' }}
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="mt-6 rounded-[1.6rem] border border-dashed border-slate-200 bg-slate-50/75 p-6">
+            <h4 class="text-xl font-semibold text-slate-950">Билетов пока нет</h4>
+            <p class="mt-2 text-sm leading-6 text-slate-500">После покупки билет с QR-кодом появится здесь.</p>
+            <RouterLink to="/events" class="secondary-button mt-4">Перейти в каталог</RouterLink>
+          </div>
+        </section>
+
+        <section class="app-panel p-6 sm:p-8">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span class="info-chip">Мои брони</span>
+              <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">Активные бронирования</h3>
+            </div>
+            <span class="status-badge border-blue-100 bg-blue-50 text-blue-700">
+              {{ pendingBookings.length }} активных
+            </span>
+          </div>
+
+          <div v-if="bookingsLoading" class="mt-6 grid gap-4 lg:grid-cols-2">
+            <article v-for="item in 2" :key="item" class="rounded-[1.75rem] border border-slate-200 bg-white p-6">
+              <div class="h-5 w-28 animate-pulse rounded-full bg-slate-100"></div>
+              <div class="mt-4 h-8 w-2/3 animate-pulse rounded-full bg-slate-200"></div>
+            </article>
+          </div>
+
+          <div v-else-if="pendingBookings.length > 0" class="mt-6 grid gap-4 lg:grid-cols-2">
+            <article v-for="booking in pendingBookings" :key="booking.id" class="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/5">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Бронь #{{ booking.id }}</p>
+                  <h4 class="mt-3 text-2xl font-semibold leading-tight text-slate-950">{{ booking.session?.event_title || 'Событие загружается' }}</h4>
+                </div>
+                <span class="status-badge" :class="bookingStatusClasses(booking)">{{ bookingStatusLabel(booking) }}</span>
+              </div>
+
+              <div class="mt-5 rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-4">
+                <p class="text-sm font-semibold text-slate-950">{{ formatDateTime(booking.session?.start_time) }}</p>
+                <p class="mt-2 text-sm text-slate-500">{{ booking.session?.hall_address || booking.session?.hall_name || 'Площадка уточняется' }}</p>
+                <p class="mt-2 text-sm text-slate-500">Места: {{ bookingItemsLabel(booking) }}</p>
+                <p class="mt-2 text-sm text-slate-500">
+                  {{ booking.reserved_until ? `Резерв до ${formatDateTime(booking.reserved_until)}` : 'Срок резерва уточняется' }}
+                </p>
+              </div>
+
+              <div class="mt-5 flex flex-wrap gap-3">
+                <button v-if="booking.can_pay" type="button" class="primary-button" :disabled="isBookingActionLoading(booking.id)" @click="payBooking(booking.id)">
+                  {{ isBookingActionLoading(booking.id) ? 'Переходим...' : paymentActionLabel(booking) }}
+                </button>
+                <button v-if="booking.can_cancel" type="button" class="secondary-button" :disabled="isBookingActionLoading(booking.id)" @click="cancelBooking(booking.id)">
+                  Отменить бронь
+                </button>
+                <RouterLink v-if="booking.session?.event_id" :to="`/events/${booking.session.event_id}`" class="secondary-button">
+                  К событию
+                </RouterLink>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="mt-6 rounded-[1.6rem] border border-dashed border-slate-200 bg-slate-50/75 p-6 text-sm leading-6 text-slate-500">
+            Активных броней пока нет. Выбери место на схеме зала, и бронь появится здесь.
+          </div>
+        </section>
+
+        <section class="app-panel p-6 sm:p-8">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span class="info-chip">Хочу сходить</span>
+              <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">Мини-афиша желаний</h3>
+            </div>
+            <span class="status-badge border-slate-200 bg-slate-50 text-slate-600">
+              {{ wantToGoEvents.length }} событий
+            </span>
+          </div>
+
+          <div v-if="wantToGoLoading" class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <article v-for="item in 3" :key="item" class="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white">
+              <div class="h-40 animate-pulse bg-slate-200"></div>
+              <div class="space-y-3 p-4">
+                <div class="h-6 w-3/4 animate-pulse rounded-full bg-slate-200"></div>
+              </div>
+            </article>
+          </div>
+
+          <div v-else-if="wantToGoEvents.length > 0" class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <article v-for="eventItem in wantToGoEvents" :key="eventItem.id" class="group overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm shadow-slate-900/5">
+              <div class="relative h-44 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900">
+                <img v-if="eventItem.poster_url" :src="eventItem.poster_url" :alt="eventItem.title" class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]" />
+                <div class="absolute inset-x-0 top-0 flex justify-between p-4">
+                  <span class="rounded-full bg-slate-950/60 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-white">{{ eventItem.category?.name || 'Событие' }}</span>
+                  <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">{{ eventItem.age_rating?.label || '0+' }}</span>
+                </div>
+              </div>
+              <div class="p-4">
+                <h4 class="line-clamp-2 text-xl font-semibold leading-tight text-slate-950">{{ eventItem.title }}</h4>
+                <p class="mt-3 text-sm text-slate-500">
+                  {{ eventItem.next_session ? formatDateTime(eventItem.next_session.start_time) : (eventItem.is_teaser ? 'Продажи скоро' : 'Дата уточняется') }}
+                </p>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <RouterLink :to="`/events/${eventItem.id}`" class="primary-button px-4 py-2.5 text-sm">Открыть</RouterLink>
+                  <button type="button" class="secondary-button px-4 py-2.5 text-sm" :disabled="isWantToGoActionLoading(eventItem.id)" @click="removeWantToGo(eventItem.id)">
+                    {{ isWantToGoActionLoading(eventItem.id) ? 'Убираем...' : 'Убрать' }}
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="mt-6 rounded-[1.6rem] border border-dashed border-slate-200 bg-slate-50/75 p-6 text-sm leading-6 text-slate-500">
+            На карточках событий можно нажать «Хочу сходить», и они появятся здесь.
+          </div>
+        </section>
+      </template>
+
+      <section class="app-panel p-6 sm:p-8">
+        <div class="flex flex-col gap-3 border-b border-slate-200/70 pb-6 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <span class="info-chip">Профиль</span>
+            <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">
+              Редактирование данных
+            </h3>
+            <p class="mt-2 text-sm leading-6 text-slate-500">
+              Эти данные используются для билетов, связи и корректной работы аккаунта.
             </p>
           </div>
-
-          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <article
-              v-if="isBusinessUser"
-              class="min-w-0 rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5"
-            >
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Компания</p>
-              <p class="mt-2 break-words text-sm font-semibold leading-6 text-slate-900">
-                {{ user?.organizer_profile?.company_name || 'Не указана' }}
-              </p>
-            </article>
-
-            <article class="min-w-0 rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5">
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Email</p>
-              <p class="mt-2 break-all text-sm font-semibold leading-6 text-slate-900">
-                {{ user?.email || 'Не указан' }}
-              </p>
-            </article>
-
-            <article
-              v-if="!isBusinessUser"
-              class="min-w-0 rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5"
-            >
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Дата рождения</p>
-              <p class="mt-2 text-sm font-semibold leading-6 text-slate-900">
-                {{ formatDate(user?.birth_date) }}
-              </p>
-            </article>
-
-            <article class="min-w-0 rounded-2xl border border-slate-200 bg-white/85 px-4 py-4 shadow-sm shadow-slate-900/5">
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Роль</p>
-              <p class="mt-2 text-sm font-semibold leading-6 text-slate-900">{{ roleLabel }}</p>
-            </article>
-          </div>
+          <span class="text-sm" :class="hasChanges ? 'text-amber-700' : 'text-slate-500'">
+            {{ hasChanges ? 'Есть несохраненные изменения' : 'Данные актуальны' }}
+          </span>
         </div>
 
         <div v-if="successMessage" class="message-success mt-6">
@@ -572,7 +931,7 @@ onMounted(loadProfile)
           {{ authStore.error }}
         </div>
 
-        <form class="mt-8 grid gap-5 sm:grid-cols-2" @submit.prevent="updateProfile">
+        <form class="mt-6 grid gap-5 sm:grid-cols-2" @submit.prevent="updateProfile">
           <div class="sm:col-span-2">
             <label class="field-label" for="profile-full-name">
               {{ isBusinessUser ? 'Контактное лицо' : 'ФИО' }}
@@ -621,387 +980,17 @@ onMounted(loadProfile)
             />
           </div>
 
-          <div class="sm:col-span-2 flex flex-col gap-4 pt-2 lg:flex-row lg:items-center lg:justify-between">
-            <p class="text-sm" :class="hasChanges ? 'text-amber-700' : 'text-slate-500'">
-              {{
-                hasChanges
-                  ? 'Есть несохраненные изменения.'
-                  : 'Форма синхронизирована с текущими данными профиля.'
-              }}
-            </p>
-
+          <div class="sm:col-span-2 flex justify-end pt-2">
             <button
               :disabled="authStore.loading || !hasChanges"
               type="submit"
-              class="primary-button w-full lg:w-auto lg:min-w-64"
+              class="primary-button w-full sm:w-auto sm:min-w-64"
             >
               {{ authStore.loading ? 'Сохраняем...' : 'Сохранить изменения' }}
             </button>
           </div>
         </form>
       </section>
-
-      <template v-if="!isBusinessUser">
-        <div v-if="cabinetMessage" class="message-success">
-          {{ cabinetMessage }}
-        </div>
-
-        <div v-if="cabinetError" class="message-error">
-          {{ cabinetError }}
-        </div>
-
-        <section class="app-panel p-8 sm:p-10">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <span class="info-chip">Хочу сходить</span>
-              <h3 class="mt-4 text-3xl font-semibold text-slate-950">
-                События, которые хочется не потерять
-              </h3>
-              <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-                Список автоматически очищается от прошедших или уже недоступных мероприятий.
-              </p>
-            </div>
-
-            <div class="rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-4">
-              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Сейчас в списке</p>
-              <p class="mt-2 text-3xl font-semibold text-slate-950">{{ wantToGoEvents.length }}</p>
-            </div>
-          </div>
-
-          <div v-if="wantToGoLoading" class="mt-8 grid gap-4 lg:grid-cols-2">
-            <article
-              v-for="item in 2"
-              :key="item"
-              class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm shadow-slate-900/5"
-            >
-              <div class="h-5 w-28 animate-pulse rounded-full bg-slate-100"></div>
-              <div class="mt-4 h-8 w-2/3 animate-pulse rounded-full bg-slate-200"></div>
-              <div class="mt-4 h-4 w-full animate-pulse rounded-full bg-slate-100"></div>
-            </article>
-          </div>
-
-          <div v-else-if="wantToGoEvents.length > 0" class="mt-8 grid gap-4 lg:grid-cols-2">
-            <article
-              v-for="eventItem in wantToGoEvents"
-              :key="eventItem.id"
-              class="rounded-[1.9rem] border border-slate-200 bg-white p-6 shadow-sm shadow-slate-900/5"
-            >
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <p class="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">
-                    {{ eventItem.category?.name || 'Событие' }}
-                  </p>
-                  <h4 class="mt-3 text-2xl font-semibold leading-tight text-slate-950">
-                    {{ eventItem.title }}
-                  </h4>
-                </div>
-
-                <div class="flex shrink-0 flex-col items-end gap-2">
-                  <span class="status-badge border-blue-100 bg-blue-50 text-blue-700">
-                    {{ eventItem.age_rating?.label || '0+' }}
-                  </span>
-                  <span
-                    class="status-badge"
-                    :class="eventItem.is_teaser
-                      ? 'border-amber-200 bg-amber-50 text-amber-800'
-                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
-                  >
-                    {{ eventItem.is_teaser ? 'Тизер' : 'Билеты открыты' }}
-                  </span>
-                </div>
-              </div>
-
-              <div
-                v-if="eventItem.is_teaser"
-                class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
-              >
-                Это тизер. Мы держим событие в списке, а когда появятся сеансы, здесь автоматически появятся дата, площадка и цена.
-              </div>
-
-              <p class="mt-4 text-sm leading-6 text-slate-500">
-                {{ eventItem.description || 'Карточка события уже доступна, можно открыть расписание и перейти к бронированию.' }}
-              </p>
-
-              <div class="mt-5 flex flex-wrap gap-2">
-                <span
-                  v-for="tag in eventItem.tags"
-                  :key="tag.id"
-                  class="rounded-full border px-2.5 py-1 text-xs font-medium"
-                  :class="tag.slug === 'teaser'
-                    ? 'border-amber-200 bg-amber-300 text-slate-950'
-                    : 'border-slate-200 bg-slate-50 text-slate-500'"
-                >
-                  #{{ tag.name }}
-                </span>
-              </div>
-
-              <div class="mt-6 grid gap-3 sm:grid-cols-2">
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Ближайший сеанс</p>
-                  <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ eventItem.next_session ? formatDateTime(eventItem.next_session.start_time) : (eventItem.is_teaser ? 'Ожидаем расписание' : 'Скоро появится') }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    {{ eventItem.next_session?.hall?.address || eventItem.next_session?.hall?.name || (eventItem.is_teaser ? 'Площадка еще подтверждается' : 'Площадка уточняется') }}
-                  </p>
-                </div>
-
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Цена от</p>
-                  <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ eventItem.minimum_price !== null ? formatPrice(eventItem.minimum_price) : (eventItem.is_teaser ? 'После открытия продаж' : 'Уточняется') }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    Добавлено {{ formatDate(eventItem.wanted_at) }}
-                  </p>
-                </div>
-              </div>
-
-              <div class="mt-6 flex flex-wrap items-center gap-3">
-                <RouterLink :to="`/events/${eventItem.id}`" class="primary-button">
-                  Открыть событие
-                </RouterLink>
-
-                <button
-                  type="button"
-                  class="secondary-button"
-                  :disabled="isWantToGoActionLoading(eventItem.id)"
-                  @click="removeWantToGo(eventItem.id)"
-                >
-                  {{ isWantToGoActionLoading(eventItem.id) ? 'Обновляем...' : 'Убрать из списка' }}
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div
-            v-else
-            class="mt-8 rounded-[1.7rem] border border-dashed border-slate-200 bg-slate-50/75 px-5 py-6 text-sm leading-6 text-slate-500"
-          >
-            Пока здесь пусто. На карточках событий можно нажать «Хочу сходить», и они сразу появятся в этом разделе.
-          </div>
-        </section>
-
-        <section class="app-panel p-8 sm:p-10">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <span class="info-chip">Мои брони</span>
-              <h3 class="mt-4 text-3xl font-semibold text-slate-950">
-                Резервы и оплаты
-              </h3>
-              <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-                Отсюда можно перейти к оплате, вернуться в карточку события или снять резерв.
-              </p>
-            </div>
-
-            <div class="rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-4">
-              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Всего записей</p>
-              <p class="mt-2 text-3xl font-semibold text-slate-950">{{ reservationBookings.length }}</p>
-            </div>
-          </div>
-
-          <div v-if="bookingsLoading" class="mt-8 grid gap-4 lg:grid-cols-2">
-            <article
-              v-for="item in 2"
-              :key="item"
-              class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm shadow-slate-900/5"
-            >
-              <div class="h-5 w-28 animate-pulse rounded-full bg-slate-100"></div>
-              <div class="mt-4 h-8 w-2/3 animate-pulse rounded-full bg-slate-200"></div>
-              <div class="mt-4 h-4 w-full animate-pulse rounded-full bg-slate-100"></div>
-            </article>
-          </div>
-
-          <div v-else-if="reservationBookings.length > 0" class="mt-8 grid gap-4 lg:grid-cols-2">
-            <article
-              v-for="booking in reservationBookings"
-              :key="booking.id"
-              class="rounded-[1.9rem] border border-slate-200 bg-white p-6 shadow-sm shadow-slate-900/5"
-            >
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Бронь #{{ booking.id }}
-                  </p>
-                  <h4 class="mt-3 text-2xl font-semibold leading-tight text-slate-950">
-                    {{ booking.session?.event_title || 'Событие загружается' }}
-                  </h4>
-                </div>
-
-                <span class="status-badge" :class="bookingStatusClasses(booking)">
-                  {{ bookingStatusLabel(booking) }}
-                </span>
-              </div>
-
-              <div class="mt-5 grid gap-3 sm:grid-cols-2">
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сеанс</p>
-                  <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ formatDateTime(booking.session?.start_time) }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    {{ booking.session?.hall_address || booking.session?.hall_name || 'Площадка уточняется' }}
-                  </p>
-                </div>
-
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сумма</p>
-                  <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ formatPrice(booking.total_amount) }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    {{ booking.reserved_until ? `Резерв до ${formatDateTime(booking.reserved_until)}` : 'Статус обновится после действия' }}
-                  </p>
-                </div>
-              </div>
-
-              <div class="mt-5 rounded-2xl border border-slate-200 bg-white px-4 py-4">
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Состав</p>
-                <p class="mt-2 text-sm leading-6 text-slate-600">
-                  {{ bookingItemsLabel(booking) }}
-                </p>
-                <p v-if="booking.payment?.failure_reason" class="mt-3 text-sm text-rose-600">
-                  Причина последней неуспешной оплаты: {{ booking.payment.failure_reason }}
-                </p>
-              </div>
-
-              <div class="mt-6 flex flex-wrap items-center gap-3">
-                <RouterLink
-                  v-if="booking.session?.event_id"
-                  :to="`/events/${booking.session.event_id}`"
-                  class="secondary-button"
-                >
-                  Открыть событие
-                </RouterLink>
-
-                <button
-                  v-if="booking.can_pay"
-                  type="button"
-                  class="primary-button"
-                  :disabled="isBookingActionLoading(booking.id)"
-                  @click="payBooking(booking.id)"
-                >
-                  {{ isBookingActionLoading(booking.id) ? 'Переходим к оплате...' : paymentActionLabel(booking) }}
-                </button>
-
-                <button
-                  v-if="booking.can_cancel"
-                  type="button"
-                  class="secondary-button"
-                  :disabled="isBookingActionLoading(booking.id)"
-                  @click="cancelBooking(booking.id)"
-                >
-                  Отменить бронь
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div
-            v-else
-            class="mt-8 rounded-[1.7rem] border border-dashed border-slate-200 bg-slate-50/75 px-5 py-6 text-sm leading-6 text-slate-500"
-          >
-            Активных броней пока нет. После выбора мест на событии резерв сразу появится здесь.
-          </div>
-        </section>
-
-        <section class="app-panel p-8 sm:p-10">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <span class="info-chip">Купленные билеты</span>
-              <h3 class="mt-4 text-3xl font-semibold text-slate-950">
-                Все подтвержденные покупки
-              </h3>
-              <p class="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
-                После успешной оплаты здесь появляется PDF-билет с QR-кодом для входа.
-              </p>
-            </div>
-
-            <div class="rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-4">
-              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Оплачено</p>
-              <p class="mt-2 text-3xl font-semibold text-slate-950">{{ ticketBookings.length }}</p>
-            </div>
-          </div>
-
-          <div v-if="ticketBookings.length > 0" class="mt-8 grid gap-4 lg:grid-cols-2">
-            <article
-              v-for="booking in ticketBookings"
-              :key="booking.id"
-              class="rounded-[1.9rem] border border-emerald-200 bg-emerald-50/40 p-6 shadow-sm shadow-slate-900/5"
-            >
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <p class="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
-                    Билет #{{ booking.id }}
-                  </p>
-                  <h4 class="mt-3 text-2xl font-semibold leading-tight text-slate-950">
-                    {{ booking.session?.event_title || 'Событие загружается' }}
-                  </h4>
-                </div>
-
-                <span class="status-badge border-emerald-200 bg-white text-emerald-700">
-                  Оплачено
-                </span>
-              </div>
-
-              <div class="mt-5 grid gap-3 sm:grid-cols-2">
-                <div class="rounded-2xl border border-emerald-100 bg-white px-4 py-4">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сеанс</p>
-                  <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ formatDateTime(booking.session?.start_time) }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    {{ booking.session?.hall_address || booking.session?.hall_name || 'Площадка уточняется' }}
-                  </p>
-                </div>
-
-                <div class="rounded-2xl border border-emerald-100 bg-white px-4 py-4">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Код билета</p>
-                  <p class="mt-2 text-sm font-semibold text-slate-900">
-                    {{ booking.ticket?.code || 'Формируется' }}
-                  </p>
-                  <p class="mt-2 text-sm text-slate-500">
-                    Оплачено {{ formatDateTime(booking.confirmed_at) }}
-                  </p>
-                </div>
-              </div>
-
-              <div class="mt-5 rounded-2xl border border-emerald-100 bg-white px-4 py-4">
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Состав билета</p>
-                <p class="mt-2 text-sm leading-6 text-slate-600">
-                  {{ bookingItemsLabel(booking) }}
-                </p>
-              </div>
-
-              <div class="mt-6 flex flex-wrap items-center gap-3">
-                <RouterLink
-                  v-if="booking.session?.event_id"
-                  :to="`/events/${booking.session.event_id}`"
-                  class="secondary-button"
-                >
-                  Открыть событие
-                </RouterLink>
-
-                <button
-                  type="button"
-                  class="primary-button"
-                  :disabled="isTicketDownloading(booking.id)"
-                  @click="downloadTicket(booking.id)"
-                >
-                  {{ isTicketDownloading(booking.id) ? 'Готовим PDF...' : 'Скачать билет PDF' }}
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div
-            v-else
-            class="mt-8 rounded-[1.7rem] border border-dashed border-slate-200 bg-slate-50/75 px-5 py-6 text-sm leading-6 text-slate-500"
-          >
-            Оплаченных билетов пока нет. После успешной оплаты они автоматически появятся здесь.
-          </div>
-        </section>
-      </template>
     </div>
   </div>
 </template>

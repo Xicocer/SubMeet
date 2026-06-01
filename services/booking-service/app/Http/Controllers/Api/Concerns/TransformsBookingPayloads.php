@@ -37,7 +37,7 @@ trait TransformsBookingPayloads
                     $element['label'] = $seat->label;
                 }
 
-                if ($type === 'dancefloor' && $standingAreaMap->has($elementId)) {
+                if (in_array($type, ['dancefloor', 'table'], true) && $standingAreaMap->has($elementId)) {
                     /** @var SessionStandingArea $standingArea */
                     $standingArea = $standingAreaMap[$elementId];
                     $element['price'] = $standingArea->price;

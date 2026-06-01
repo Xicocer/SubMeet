@@ -3,23 +3,88 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   archiveVenueHallRequest,
+  createVenueHallUnavailablePeriodRequest,
+  deleteVenueHallUnavailablePeriodRequest,
+  getVenueHallAvailabilityRequest,
   getVenueHallRentalRequestsRequest,
   getVenueHallsRequest,
   updateVenueHallRentalRequestStatus,
 } from '@/api/halls'
-import type { HallRentalRequest, HallRentalRequestStatus, HallStatus, HallSummary } from '@/types/hall'
+import type {
+  HallAvailabilityDay,
+  HallAvailabilityPeriod,
+  HallAvailabilityResponse,
+  HallRentalRequest,
+  HallRentalRequestStatus,
+  HallStatus,
+  HallSummary,
+} from '@/types/hall'
 import { formatDate, formatDateTime, formatPrice } from '@/utils/format'
 
 const router = useRouter()
+const pad2 = (value: number) => String(value).padStart(2, '0')
+const toMonthValue = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`
+const getMonthRange = (monthValue: string) => {
+  const [yearValue, monthIndexValue] = monthValue.split('-').map(Number)
+  const safeYear = Number.isFinite(yearValue) ? Number(yearValue) : new Date().getFullYear()
+  const safeMonth = Number.isFinite(monthIndexValue) ? Number(monthIndexValue) : 1
+  const firstDay = new Date(safeYear, safeMonth - 1, 1)
+  const lastDay = new Date(safeYear, safeMonth, 0)
+
+  return {
+    firstDay,
+    from: `${firstDay.getFullYear()}-${pad2(firstDay.getMonth() + 1)}-01`,
+    to: `${lastDay.getFullYear()}-${pad2(lastDay.getMonth() + 1)}-${pad2(lastDay.getDate())}`,
+  }
+}
+const formatCalendarMonth = (monthValue: string) => {
+  const { firstDay } = getMonthRange(monthValue)
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    month: 'long',
+    year: 'numeric',
+  }).format(firstDay)
+}
+const formatDateKey = (dateKey: string) => {
+  if (!dateKey) {
+    return 'Дата не выбрана'
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${dateKey}T00:00:00`))
+}
+const addDaysToDateKey = (dateKey: string, days: number) => {
+  const date = new Date(`${dateKey}T00:00:00`)
+  date.setDate(date.getDate() + days)
+
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+}
+const todayDateKey = () => {
+  const today = new Date()
+
+  return `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`
+}
 
 const halls = ref<HallSummary[]>([])
 const rentalRequests = ref<HallRentalRequest[]>([])
 const loading = ref(false)
 const requestsLoading = ref(false)
 const saving = ref(false)
+const technicalCalendarOpen = ref(false)
+const technicalCalendarLoading = ref(false)
+const technicalCalendarSaving = ref(false)
 const requestActionIds = ref<number[]>([])
 const error = ref('')
 const success = ref('')
+const technicalCalendarError = ref('')
+const selectedTechnicalHall = ref<HallSummary | null>(null)
+const hallAvailability = ref<HallAvailabilityResponse | null>(null)
+const technicalCalendarMonth = ref(toMonthValue(new Date()))
+const technicalReason = ref('Технические работы')
+const weekDayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
 const filters = reactive({
   search: '',
@@ -41,6 +106,16 @@ const draftCount = computed(() => halls.value.filter((hall) => hall.status === '
 const activeCount = computed(() => halls.value.filter((hall) => hall.status === 'active').length)
 const pendingRequestsCount = computed(() => rentalRequests.value.filter((request) => request.status === 'pending').length)
 const approvedRequestsCount = computed(() => rentalRequests.value.filter((request) => request.status === 'approved').length)
+const technicalCalendarCells = computed<Array<HallAvailabilityDay | null>>(() => {
+  const { firstDay } = getMonthRange(technicalCalendarMonth.value)
+  const leadingEmptyDays = (firstDay.getDay() + 6) % 7
+
+  return [
+    ...Array.from({ length: leadingEmptyDays }, () => null),
+    ...(hallAvailability.value?.days ?? []),
+  ]
+})
+const unavailablePeriodsForCalendar = computed(() => hallAvailability.value?.unavailable_periods ?? [])
 
 const hallStatusLabel = (status: HallStatus) => {
   switch (status) {
@@ -144,6 +219,169 @@ const loadRentalRequests = async () => {
     rentalRequests.value = []
   } finally {
     requestsLoading.value = false
+  }
+}
+
+const isFutureTechnicalDay = (dateKey: string) => dateKey > todayDateKey()
+
+const availabilityPeriodOverlapsDay = (period: HallAvailabilityPeriod, dateKey: string) => {
+  if (!period.start || !period.end) {
+    return false
+  }
+
+  const dayStart = new Date(`${dateKey}T00:00:00`).getTime()
+  const dayEnd = new Date(`${dateKey}T23:59:59`).getTime()
+  const periodStart = new Date(period.start).getTime()
+  const periodEnd = new Date(period.end).getTime()
+
+  return Number.isFinite(periodStart)
+    && Number.isFinite(periodEnd)
+    && periodStart <= dayEnd
+    && periodEnd >= dayStart
+}
+
+const findUnavailablePeriodForDay = (dateKey: string) => {
+  return unavailablePeriodsForCalendar.value.find((period) => availabilityPeriodOverlapsDay(period, dateKey)) ?? null
+}
+
+const technicalDayStatusLabel = (day: HallAvailabilityDay | null) => {
+  if (!day) {
+    return ''
+  }
+
+  switch (day.status) {
+    case 'booked':
+      return 'Занято'
+    case 'unavailable':
+      return 'Техработы'
+    default:
+      return isFutureTechnicalDay(day.date) ? 'Свободно' : 'Прошло'
+  }
+}
+
+const technicalDayButtonClasses = (day: HallAvailabilityDay | null) => {
+  if (!day) {
+    return 'invisible'
+  }
+
+  if (day.status === 'booked') {
+    return 'border-blue-200 bg-blue-100 text-blue-800 cursor-not-allowed'
+  }
+
+  if (day.status === 'unavailable') {
+    return 'border-emerald-200 bg-emerald-100 text-emerald-800 hover:border-emerald-400 hover:bg-emerald-50'
+  }
+
+  if (!isFutureTechnicalDay(day.date)) {
+    return 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+  }
+
+  return 'border-slate-200 bg-white text-slate-900 hover:border-emerald-400 hover:bg-emerald-50'
+}
+
+const isTechnicalDayDisabled = (day: HallAvailabilityDay | null) => {
+  if (!day) {
+    return true
+  }
+
+  return day.status === 'booked' || (day.status === 'free' && !isFutureTechnicalDay(day.date))
+}
+
+const loadTechnicalAvailability = async () => {
+  if (!selectedTechnicalHall.value) {
+    return
+  }
+
+  technicalCalendarLoading.value = true
+  technicalCalendarError.value = ''
+
+  try {
+    const range = getMonthRange(technicalCalendarMonth.value)
+    hallAvailability.value = await getVenueHallAvailabilityRequest(selectedTechnicalHall.value.id, {
+      from: range.from,
+      to: range.to,
+    })
+  } catch (requestError) {
+    console.error(requestError)
+    hallAvailability.value = null
+    technicalCalendarError.value = extractErrorMessage(requestError, 'Не удалось загрузить календарь площадки.')
+  } finally {
+    technicalCalendarLoading.value = false
+  }
+}
+
+const openTechnicalCalendar = async (hall: HallSummary) => {
+  selectedTechnicalHall.value = hall
+  technicalCalendarMonth.value = toMonthValue(new Date())
+  technicalReason.value = 'Технические работы'
+  technicalCalendarError.value = ''
+  success.value = ''
+  error.value = ''
+  technicalCalendarOpen.value = true
+  await loadTechnicalAvailability()
+}
+
+const closeTechnicalCalendar = () => {
+  technicalCalendarOpen.value = false
+  selectedTechnicalHall.value = null
+  hallAvailability.value = null
+  technicalCalendarError.value = ''
+}
+
+const changeTechnicalCalendarMonth = async (offset: number) => {
+  const { firstDay } = getMonthRange(technicalCalendarMonth.value)
+  firstDay.setMonth(firstDay.getMonth() + offset)
+  technicalCalendarMonth.value = toMonthValue(firstDay)
+  await loadTechnicalAvailability()
+}
+
+const selectTechnicalCalendarDay = async (day: HallAvailabilityDay | null) => {
+  if (!day || !selectedTechnicalHall.value || technicalCalendarSaving.value) {
+    return
+  }
+
+  if (day.status === 'booked') {
+    technicalCalendarError.value = 'На этот день уже есть подтвержденная аренда, техработы поставить нельзя.'
+    return
+  }
+
+  technicalCalendarSaving.value = true
+  technicalCalendarError.value = ''
+  success.value = ''
+
+  try {
+    if (day.status === 'unavailable') {
+      const period = findUnavailablePeriodForDay(day.date)
+
+      if (!period) {
+        technicalCalendarError.value = 'Не удалось найти период недоступности для удаления.'
+        return
+      }
+
+      const response = await deleteVenueHallUnavailablePeriodRequest(period.id)
+      success.value = response.message
+      await loadTechnicalAvailability()
+      return
+    }
+
+    if (!isFutureTechnicalDay(day.date)) {
+      technicalCalendarError.value = 'Технические работы можно поставить только на будущую дату.'
+      return
+    }
+
+    const response = await createVenueHallUnavailablePeriodRequest(selectedTechnicalHall.value.id, {
+      unavailable_start: `${day.date}T00:00:00`,
+      unavailable_end: `${addDaysToDateKey(day.date, 1)}T00:00:00`,
+      reason: technicalReason.value.trim() || 'Технические работы',
+    })
+
+    success.value = response.message
+    await loadTechnicalAvailability()
+  } catch (requestError) {
+    console.error(requestError)
+    technicalCalendarError.value = extractErrorMessage(requestError, 'Не удалось обновить график недоступности.')
+  } finally {
+    technicalCalendarSaving.value = false
   }
 }
 
@@ -347,11 +585,15 @@ onMounted(async () => {
             </div>
 
             <div class="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-600">
-              <p>Мест: {{ hall.capacities?.seat ?? 0 }}, VIP: {{ hall.capacities?.vip ?? 0 }}, танцпол: {{ hall.capacities?.dancefloor ?? 0 }}</p>
+              <p>Мест: {{ hall.capacities?.seat ?? 0 }}, за столиками: {{ hall.capacities?.table ?? 0 }}, VIP: {{ hall.capacities?.vip ?? 0 }}, танцпол: {{ hall.capacities?.dancefloor ?? 0 }}</p>
               <p>Уровней: {{ hall.layout_meta?.levels_count ?? 0 }}, элементов: {{ hall.layout_meta?.elements_count ?? 0 }}</p>
             </div>
 
             <div class="mt-6 flex flex-col gap-3">
+              <button type="button" class="secondary-button" @click="openTechnicalCalendar(hall)">
+                Календарь техработ
+              </button>
+
               <button type="button" class="primary-button" @click="goToEdit(hall.id)">
                 Открыть редактор
               </button>
@@ -503,5 +745,126 @@ onMounted(async () => {
         </div>
       </section>
     </section>
+
+    <div
+      v-if="technicalCalendarOpen"
+      class="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
+      @click.self="closeTechnicalCalendar"
+    >
+      <section class="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/70 bg-white p-6 shadow-2xl shadow-slate-950/25 sm:p-8">
+        <div class="flex flex-col gap-5 border-b border-slate-200 pb-6 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <span class="info-chip">График площадки</span>
+            <h3 class="mt-4 text-3xl font-semibold text-slate-950">
+              Технические работы
+            </h3>
+            <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+              Выбери свободный день, чтобы закрыть площадку для аренды. Зеленый день уже отмечен как недоступный, повторный клик снимет отметку.
+            </p>
+          </div>
+
+          <button type="button" class="secondary-button px-4 py-2.5" @click="closeTechnicalCalendar">
+            Закрыть
+          </button>
+        </div>
+
+        <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
+          <div class="rounded-[1.75rem] border border-slate-200 bg-slate-50/70 p-5">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                  {{ selectedTechnicalHall?.name || 'Площадка' }}
+                </p>
+                <h4 class="mt-2 text-2xl font-semibold capitalize text-slate-950">
+                  {{ formatCalendarMonth(technicalCalendarMonth) }}
+                </h4>
+              </div>
+
+              <div class="flex gap-2">
+                <button type="button" class="secondary-button px-4 py-2.5" @click="changeTechnicalCalendarMonth(-1)">
+                  Назад
+                </button>
+                <button type="button" class="secondary-button px-4 py-2.5" @click="changeTechnicalCalendarMonth(1)">
+                  Вперед
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-5 grid grid-cols-3 gap-2 text-[0.72rem] font-semibold text-slate-600 lg:grid-cols-4">
+              <div class="rounded-2xl border border-blue-200 bg-blue-100 px-3 py-2 text-blue-800">Синий: занят</div>
+              <div class="rounded-2xl border border-emerald-200 bg-emerald-100 px-3 py-2 text-emerald-800">Зеленый: техработы</div>
+              <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700">Белый: свободен</div>
+              <div class="rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-slate-500">Серый: прошел</div>
+            </div>
+
+            <div v-if="technicalCalendarError" class="message-error mt-5">
+              {{ technicalCalendarError }}
+            </div>
+
+            <div v-if="technicalCalendarLoading" class="mt-6 grid grid-cols-7 gap-2">
+              <div v-for="item in 35" :key="item" class="h-20 animate-pulse rounded-2xl bg-slate-100"></div>
+            </div>
+
+            <template v-else>
+              <div class="mt-6 grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                <span v-for="label in weekDayLabels" :key="label">{{ label }}</span>
+              </div>
+
+              <div class="mt-3 grid grid-cols-7 gap-2">
+                <button
+                  v-for="(day, index) in technicalCalendarCells"
+                  :key="day?.date || `technical-empty-${index}`"
+                  type="button"
+                  class="min-h-[4.75rem] overflow-hidden rounded-2xl border p-2 text-left transition"
+                  :class="technicalDayButtonClasses(day)"
+                  :disabled="isTechnicalDayDisabled(day)"
+                  @click="selectTechnicalCalendarDay(day)"
+                >
+                  <template v-if="day">
+                    <span class="text-base font-semibold">{{ Number(day.date.slice(-2)) }}</span>
+                    <span class="mt-1 block max-w-full truncate text-[0.56rem] font-bold uppercase tracking-[0.08em] opacity-75 sm:text-[0.6rem]">
+                      {{ technicalDayStatusLabel(day) }}
+                    </span>
+                  </template>
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <aside class="space-y-4">
+            <div class="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-sm shadow-slate-900/5">
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Как работает</p>
+              <p class="mt-3 text-sm leading-6 text-slate-500">
+                Технический день сразу станет зеленым в календаре организатора, и он не сможет отправить заявку на эту дату.
+              </p>
+            </div>
+
+            <div class="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-sm shadow-slate-900/5">
+              <label class="field-label" for="technical-reason">Причина недоступности</label>
+              <input
+                id="technical-reason"
+                v-model="technicalReason"
+                type="text"
+                class="field-input mt-3"
+                placeholder="Например: генеральная уборка"
+              />
+            </div>
+
+            <div class="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-5 py-5 text-sm leading-6 text-emerald-800">
+              Клик по белому будущему дню добавляет техработы. Клик по зеленому дню удаляет отметку.
+            </div>
+
+            <button
+              type="button"
+              class="secondary-button w-full justify-center"
+              :disabled="technicalCalendarSaving"
+              @click="loadTechnicalAvailability"
+            >
+              {{ technicalCalendarSaving ? 'Сохраняем...' : 'Обновить календарь' }}
+            </button>
+          </aside>
+        </div>
+      </section>
+    </div>
   </div>
 </template>

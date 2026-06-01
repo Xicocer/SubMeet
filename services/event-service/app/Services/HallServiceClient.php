@@ -79,4 +79,28 @@ class HallServiceClient
 
         return $response->json();
     }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     *
+     * @throws ConnectionException
+     */
+    public function getEventRentalRequests(int $eventId, string $statuses = 'pending,approved'): array
+    {
+        $response = $this->http
+            ->acceptJson()
+            ->get(rtrim(config('services.halls.base_url'), '/') . '/events/' . $eventId . '/hall-rental-requests', [
+                'statuses' => $statuses,
+            ]);
+
+        if ($response->notFound()) {
+            return [];
+        }
+
+        if ($response->failed()) {
+            $response->throw();
+        }
+
+        return $response->json('data') ?? [];
+    }
 }

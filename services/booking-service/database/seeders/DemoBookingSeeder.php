@@ -644,8 +644,8 @@ class DemoBookingSeeder extends Seeder
                 continue;
             }
 
-            if ($type === 'dancefloor') {
-                $capacity = (int) ($element['capacity'] ?? 0);
+            if (in_array($type, ['dancefloor', 'table'], true)) {
+                $capacity = (int) ($element['capacity'] ?? ($type === 'table' ? 2 : 0));
 
                 if ($capacity < 1) {
                     continue;
@@ -654,7 +654,7 @@ class DemoBookingSeeder extends Seeder
                 SessionStandingArea::query()->create([
                     'session_snapshot_id' => $snapshot->id,
                     'element_id' => $elementId,
-                    'label' => (string) ($element['label'] ?? 'Dancefloor'),
+                    'label' => (string) ($element['label'] ?? ($type === 'table' ? 'Table' : 'Dancefloor')),
                     'level_id' => $this->nullableString($element['level_id'] ?? null),
                     'price' => (float) $snapshot->base_price,
                     'capacity_total' => $capacity,
@@ -718,6 +718,7 @@ class DemoBookingSeeder extends Seeder
                 ['id' => 'seat-d2', 'type' => 'seat', 'label' => 'D-2', 'x' => 390, 'y' => 320, 'width' => 42, 'height' => 42, 'row' => 'D', 'number' => '2', 'level_id' => 'main'],
                 ['id' => 'seat-d3', 'type' => 'seat', 'label' => 'D-3', 'x' => 450, 'y' => 320, 'width' => 42, 'height' => 42, 'row' => 'D', 'number' => '3', 'level_id' => 'main'],
                 ['id' => 'seat-d4', 'type' => 'seat', 'label' => 'D-4', 'x' => 510, 'y' => 320, 'width' => 42, 'height' => 42, 'row' => 'D', 'number' => '4', 'level_id' => 'main'],
+                ['id' => 'table-main-1', 'type' => 'table', 'label' => 'Table 1', 'x' => 610, 'y' => 300, 'width' => 118, 'height' => 86, 'capacity' => 4, 'level_id' => 'main'],
                 ['id' => 'vip-e1', 'type' => 'vip_seat', 'label' => 'VIP E-1', 'x' => 360, 'y' => 420, 'width' => 44, 'height' => 44, 'row' => 'E', 'number' => '1', 'level_id' => 'balcony'],
                 ['id' => 'vip-e2', 'type' => 'vip_seat', 'label' => 'VIP E-2', 'x' => 430, 'y' => 420, 'width' => 44, 'height' => 44, 'row' => 'E', 'number' => '2', 'level_id' => 'balcony'],
                 ['id' => 'vip-e3', 'type' => 'vip_seat', 'label' => 'VIP E-3', 'x' => 500, 'y' => 420, 'width' => 44, 'height' => 44, 'row' => 'E', 'number' => '3', 'level_id' => 'balcony'],

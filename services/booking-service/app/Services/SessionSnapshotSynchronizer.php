@@ -134,8 +134,8 @@ class SessionSnapshotSynchronizer
                 continue;
             }
 
-            if ($type === 'dancefloor') {
-                $capacity = (int) ($element['capacity'] ?? 0);
+            if (in_array($type, ['dancefloor', 'table'], true)) {
+                $capacity = (int) ($element['capacity'] ?? ($type === 'table' ? 2 : 0));
 
                 if ($capacity < 1) {
                     continue;
@@ -144,7 +144,7 @@ class SessionSnapshotSynchronizer
                 SessionStandingArea::query()->create([
                     'session_snapshot_id' => $snapshot->id,
                     'element_id' => $elementId,
-                    'label' => $this->resolveStandingLabel($element),
+                    'label' => $this->resolveStandingLabel($element, $type),
                     'level_id' => $this->nullableString($element['level_id'] ?? null),
                     'price' => $this->resolveElementPrice($type, (float) $snapshot->base_price),
                     'capacity_total' => $capacity,
@@ -186,11 +186,15 @@ class SessionSnapshotSynchronizer
     /**
      * @param  array<string, mixed>  $element
      */
-    private function resolveStandingLabel(array $element): string
+    private function resolveStandingLabel(array $element, string $type = 'dancefloor'): string
     {
         $label = trim((string) ($element['label'] ?? ''));
 
-        return $label !== '' ? $label : 'Dancefloor';
+        if ($label !== '') {
+            return $label;
+        }
+
+        return $type === 'table' ? 'Table' : 'Dancefloor';
     }
 
     private function resolveElementPrice(string $type, float $basePrice): float

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Hall extends Model
 {
@@ -19,6 +20,7 @@ class Hall extends Model
         'name',
         'address',
         'description',
+        'photo_urls',
         'hourly_rate',
         'layout',
         'seat_capacity',
@@ -32,6 +34,7 @@ class Hall extends Model
     {
         return [
             'venue_owner_id' => 'integer',
+            'photo_urls' => 'array',
             'hourly_rate' => 'decimal:2',
             'layout' => 'array',
             'seat_capacity' => 'integer',
@@ -44,5 +47,15 @@ class Hall extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    public function rentalRequests(): HasMany
+    {
+        return $this->hasMany(HallRentalRequest::class);
+    }
+
+    public function unavailablePeriods(): HasMany
+    {
+        return $this->hasMany(HallUnavailablePeriod::class);
     }
 }

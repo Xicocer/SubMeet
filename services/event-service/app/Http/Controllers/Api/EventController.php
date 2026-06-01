@@ -9,9 +9,12 @@ use App\Models\EventSession;
 use App\Services\AuthServiceClient;
 use App\Services\EventTeaserService;
 use App\Services\HallServiceClient;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Throwable;
 
 class EventController extends Controller
 {
@@ -45,34 +48,7 @@ class EventController extends Controller
                 'sessions as available_sessions_count' => fn ($query) => $query->available(),
             ]);
 
-        $query->when(
-            $validated['search'] ?? null,
-            function ($builder, string $search): void {
-                $like = '%' . trim($search) . '%';
-                $normalizedSearch = mb_strtolower(trim($search));
-                $looksLikeTeaserSearch = str_contains($normalizedSearch, 'тизер')
-                    || str_contains($normalizedSearch, EventTeaserService::TAG_SLUG);
-
-                $builder->where(function ($searchQuery) use ($like, $looksLikeTeaserSearch): void {
-                    $searchQuery
-                        ->where('title', 'like', $like)
-                        ->orWhere('description', 'like', $like)
-                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', $like))
-                        ->orWhereHas('tags', function ($tagQuery) use ($like): void {
-                            $tagQuery
-                                ->where('name', 'like', $like)
-                                ->orWhere('slug', 'like', $like);
-                        });
-
-                    if ($looksLikeTeaserSearch) {
-                        $searchQuery->orWhereDoesntHave(
-                            'sessions',
-                            fn ($sessionQuery) => $sessionQuery->available(),
-                        );
-                    }
-                });
-            }
-        );
+        $this->applySearchFilter($query, $validated['search'] ?? null);
 
         $query->when(
             $validated['category'] ?? null,
@@ -126,6 +102,9 @@ class EventController extends Controller
             $authUserId,
             $events->getCollection()->pluck('id')->all(),
         );
+        $availableSessions = $this->loadAvailableSessions(
+            $events->getCollection()->pluck('id')->all(),
+        );
 
         $events->setCollection(
             $events->getCollection()->map(
@@ -133,11 +112,111 @@ class EventController extends Controller
                     $event,
                     false,
                     isset($favoriteEventIds[$event->id]),
+                    $availableSessions->get($event->id, collect()),
                 )
             )
         );
 
         return response()->json($events);
+    }
+
+    private function applySearchFilter(EloquentBuilder $query, ?string $search): void
+    {
+        $search = trim((string) $search);
+
+        if ($search === '') {
+            return;
+        }
+
+        $scoutEventIds = Event::search($search)
+            ->where('status', Event::STATUS_PUBLISHED)
+            ->keys()
+            ->map(fn ($eventId) => (int) $eventId)
+            ->all();
+
+        $searchTerms = $this->searchTerms($search);
+        $normalizedSearch = mb_strtolower($search);
+        $looksLikeTeaserSearch = str_contains($normalizedSearch, mb_strtolower(EventTeaserService::TAG_NAME))
+            || str_contains($normalizedSearch, EventTeaserService::TAG_SLUG);
+
+        $query->where(function (EloquentBuilder $searchQuery) use ($scoutEventIds, $searchTerms, $looksLikeTeaserSearch): void {
+            if ($scoutEventIds !== []) {
+                $searchQuery->whereKey($scoutEventIds);
+            } else {
+                $searchQuery->whereRaw('1 = 0');
+            }
+
+            foreach ($searchTerms as $term) {
+                $like = '%' . $term . '%';
+
+                $searchQuery
+                    ->orWhere('title', 'like', $like)
+                    ->orWhere('description', 'like', $like)
+                    ->orWhereHas('category', function ($categoryQuery) use ($like): void {
+                        $categoryQuery
+                            ->where('name', 'like', $like)
+                            ->orWhere('slug', 'like', $like);
+                    })
+                    ->orWhereHas('tags', function ($tagQuery) use ($like): void {
+                        $tagQuery
+                            ->where('name', 'like', $like)
+                            ->orWhere('slug', 'like', $like);
+                    });
+            }
+
+            if ($looksLikeTeaserSearch) {
+                $searchQuery->orWhereDoesntHave(
+                    'sessions',
+                    fn ($sessionQuery) => $sessionQuery->available(),
+                );
+            }
+        });
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function searchTerms(string $search): array
+    {
+        $normalizedSearch = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $search) ?? $search));
+        $tokens = preg_split('/[^\p{L}\p{N}]+/u', $normalizedSearch, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $terms = [$search, $normalizedSearch];
+
+        foreach ($tokens as $token) {
+            $terms[] = $token;
+            $terms[] = $this->normalizeRussianSearchToken($token);
+        }
+
+        return collect($terms)
+            ->map(fn (string $term) => trim($term))
+            ->filter(fn (string $term) => mb_strlen($term) >= 2)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function normalizeRussianSearchToken(string $token): string
+    {
+        if (mb_strlen($token) <= 4) {
+            return $token;
+        }
+
+        $endings = [
+            'иями', 'ями', 'ами',
+            'ого', 'ему', 'ыми', 'ими',
+            'ах', 'ях', 'ов', 'ев', 'ей', 'ой', 'ый', 'ий', 'ое', 'ее', 'ая', 'яя', 'ом', 'ем', 'ам', 'ям',
+            'ы', 'и', 'а', 'я', 'у', 'ю', 'е', 'о',
+        ];
+
+        foreach ($endings as $ending) {
+            if (str_ends_with($token, $ending)) {
+                $normalized = mb_substr($token, 0, -mb_strlen($ending));
+
+                return mb_strlen($normalized) >= 3 ? $normalized : $token;
+            }
+        }
+
+        return $token;
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -156,6 +235,7 @@ class EventController extends Controller
             ->findOrFail($id);
 
         $authUserId = $this->resolveOptionalAuthUserId($request);
+        $availableSessions = $this->loadAvailableSessions([$event->id]);
 
         return response()->json($this->transformEvent(
             $event,
@@ -166,6 +246,7 @@ class EventController extends Controller
                     ->where('event_id', $event->id)
                     ->exists()
                 : false,
+            $availableSessions->get($event->id, collect()),
         ));
     }
 
@@ -193,13 +274,25 @@ class EventController extends Controller
         );
     }
 
-    private function transformEvent(Event $event, bool $detailed = false, bool $isWanted = false): array
-    {
+    /**
+     * @param  Collection<int, EventSession>|null  $availableSessions
+     */
+    private function transformEvent(
+        Event $event,
+        bool $detailed = false,
+        bool $isWanted = false,
+        ?Collection $availableSessions = null,
+    ): array {
         $isTeaser = $this->teaserService->isTeaser($event);
+        $nextSession = $availableSessions?->first();
+        $minimumPrice = $availableSessions
+            ? $availableSessions->map(fn (EventSession $session) => (float) $session->base_price)->min()
+            : null;
 
         $payload = [
             'id' => $event->id,
             'title' => $event->title,
+            'description' => $event->description,
             'poster_url' => $event->poster_url,
             'category' => [
                 'id' => $event->category?->id,
@@ -223,17 +316,59 @@ class EventController extends Controller
             'is_teaser' => $isTeaser,
             'has_available_sessions' => !$isTeaser,
             'teaser_reason' => $isTeaser ? EventTeaserService::REASON : null,
+            'available_sessions_count' => (int) ($event->getAttribute('available_sessions_count') ?? 0),
+            'minimum_price' => $minimumPrice !== null ? round($minimumPrice, 2) : null,
+            'next_session' => $nextSession ? $this->transformSession($nextSession) : null,
         ];
 
         if ($detailed) {
-            $payload['description'] = $event->description;
             $payload['organizer_id'] = $event->organizer_id;
             $payload['status'] = $event->status;
+            $payload['tentative_dates'] = $isTeaser ? $this->loadTentativeDates($event->id) : [];
             $payload['created_at'] = $event->created_at?->toISOString();
             $payload['updated_at'] = $event->updated_at?->toISOString();
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  array<int, int>  $eventIds
+     * @return Collection<int, Collection<int, EventSession>>
+     */
+    private function loadAvailableSessions(array $eventIds): Collection
+    {
+        if ($eventIds === []) {
+            return collect();
+        }
+
+        return EventSession::query()
+            ->whereIn('event_id', array_unique($eventIds))
+            ->available()
+            ->orderBy('start_time')
+            ->get()
+            ->groupBy('event_id');
+    }
+
+    private function loadTentativeDates(int $eventId): array
+    {
+        try {
+            $rentalRequests = $this->hallServiceClient->getEventRentalRequests($eventId);
+        } catch (Throwable) {
+            return [];
+        }
+
+        return collect($rentalRequests)
+            ->map(fn (array $rentalRequest) => [
+                'id' => $rentalRequest['id'] ?? null,
+                'status' => $rentalRequest['status'] ?? null,
+                'requested_start' => $rentalRequest['requested_start'] ?? null,
+                'requested_end' => $rentalRequest['requested_end'] ?? null,
+                'hall' => $rentalRequest['hall'] ?? null,
+            ])
+            ->filter(fn (array $rentalRequest) => $rentalRequest['requested_start'] !== null && $rentalRequest['requested_end'] !== null)
+            ->values()
+            ->all();
     }
 
     private function resolveOptionalAuthUserId(Request $request): ?int
@@ -313,9 +448,12 @@ class EventController extends Controller
             'name' => $hall['name'] ?? null,
             'address' => $hall['address'] ?? null,
             'description' => $hall['description'] ?? null,
+            'photo_urls' => $hall['photo_urls'] ?? [],
             'organizer_id' => $hall['organizer_id'] ?? null,
+            'venue_owner_id' => $hall['venue_owner_id'] ?? null,
             'status' => $hall['status'] ?? null,
             'capacities' => $hall['capacities'] ?? null,
+            'layout_meta' => $hall['layout_meta'] ?? null,
         ];
     }
 

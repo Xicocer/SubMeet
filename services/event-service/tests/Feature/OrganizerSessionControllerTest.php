@@ -20,15 +20,23 @@ class OrganizerSessionControllerTest extends TestCase
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
+        $rentalRequest = $this->rentalRequestPayload(
+            requestId: 501,
+            hallId: 101,
+            organizerId: 77,
+            eventId: $event->id,
+            startTime: Carbon::now()->addDay()->toDateTimeString(),
+            endTime: Carbon::now()->addDay()->addHours(2)->toDateTimeString(),
+        );
         $this->fakeOrganizerDependencies(77, [
             101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ], [], [
+            501 => $rentalRequest,
         ]);
 
         $response = $this->withHeader('Authorization', 'Bearer organizer-token')
             ->postJson("/api/organizer/events/{$event->id}/sessions", [
-                'hall_id' => 101,
-                'start_time' => Carbon::now()->addDay()->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->addHours(2)->toDateTimeString(),
+                'hall_rental_request_id' => 501,
                 'base_price' => 2500,
             ]);
 
@@ -43,6 +51,7 @@ class OrganizerSessionControllerTest extends TestCase
         $this->assertDatabaseHas('event_sessions', [
             'event_id' => $event->id,
             'hall_id' => 101,
+            'hall_rental_request_id' => 501,
             'status' => EventSession::STATUS_SCHEDULED,
         ]);
 
@@ -99,9 +108,7 @@ class OrganizerSessionControllerTest extends TestCase
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->postJson("/api/organizer/events/{$event->id}/sessions", [
-                'hall_id' => 101,
-                'start_time' => Carbon::now()->addDay()->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->addHours(2)->toDateTimeString(),
+                'hall_rental_request_id' => 501,
                 'base_price' => 2500,
             ])
             ->assertNotFound();
@@ -117,13 +124,11 @@ class OrganizerSessionControllerTest extends TestCase
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->postJson("/api/organizer/events/{$event->id}/sessions", [
-                'hall_id' => 999,
-                'start_time' => Carbon::now()->addDay()->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->addHours(2)->toDateTimeString(),
+                'hall_rental_request_id' => 999,
                 'base_price' => 2500,
             ])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['hall_id']);
+            ->assertJsonValidationErrors(['hall_rental_request_id']);
 
         Carbon::setTestNow();
     }
@@ -132,8 +137,18 @@ class OrganizerSessionControllerTest extends TestCase
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
+        $rentalRequest = $this->rentalRequestPayload(
+            requestId: 502,
+            hallId: 101,
+            organizerId: 77,
+            eventId: $event->id,
+            startTime: Carbon::now()->addDay()->setTime(19, 0)->toDateTimeString(),
+            endTime: Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
+        );
         $this->fakeOrganizerDependencies(77, [
             101 => $this->hallPayload(101, 77, 'Main Arena'),
+        ], [], [
+            502 => $rentalRequest,
         ]);
 
         EventSession::query()->create([
@@ -147,9 +162,7 @@ class OrganizerSessionControllerTest extends TestCase
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->postJson("/api/organizer/events/{$event->id}/sessions", [
-                'hall_id' => 101,
-                'start_time' => Carbon::now()->addDay()->setTime(19, 0)->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
+                'hall_rental_request_id' => 502,
                 'base_price' => 3200,
             ])
             ->assertUnprocessable()
@@ -165,21 +178,30 @@ class OrganizerSessionControllerTest extends TestCase
         $session = EventSession::query()->create([
             'event_id' => $event->id,
             'hall_id' => 101,
+            'hall_rental_request_id' => 601,
             'start_time' => Carbon::now()->addDay()->setTime(18, 0),
             'end_time' => Carbon::now()->addDay()->setTime(20, 0),
             'base_price' => 3000,
             'status' => EventSession::STATUS_SCHEDULED,
         ]);
+        $rentalRequest = $this->rentalRequestPayload(
+            requestId: 602,
+            hallId: 102,
+            organizerId: 77,
+            eventId: $event->id,
+            startTime: Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
+            endTime: Carbon::now()->addDay()->setTime(23, 0)->toDateTimeString(),
+        );
 
         $this->fakeOrganizerDependencies(77, [
             102 => $this->hallPayload(102, 77, 'Balcony Hall'),
+        ], [], [
+            602 => $rentalRequest,
         ]);
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->putJson("/api/organizer/sessions/{$session->id}", [
-                'hall_id' => 102,
-                'start_time' => Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->setTime(23, 0)->toDateTimeString(),
+                'hall_rental_request_id' => 602,
                 'base_price' => 3500,
             ])
             ->assertOk()
@@ -190,6 +212,7 @@ class OrganizerSessionControllerTest extends TestCase
         $this->assertDatabaseHas('event_sessions', [
             'id' => $session->id,
             'hall_id' => 102,
+            'hall_rental_request_id' => 602,
             'base_price' => 3500,
         ]);
 
@@ -200,8 +223,18 @@ class OrganizerSessionControllerTest extends TestCase
     {
         Carbon::setTestNow('2026-04-24 10:00:00');
         $event = $this->createOrganizerEvent(77);
+        $rentalRequest = $this->rentalRequestPayload(
+            requestId: 603,
+            hallId: 200,
+            organizerId: 77,
+            eventId: $event->id,
+            startTime: Carbon::now()->addDay()->setTime(19, 0)->toDateTimeString(),
+            endTime: Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
+        );
         $this->fakeOrganizerDependencies(77, [
             200 => $this->hallPayload(200, 77, 'Main Arena'),
+        ], [], [
+            603 => $rentalRequest,
         ]);
 
         EventSession::query()->create([
@@ -216,6 +249,7 @@ class OrganizerSessionControllerTest extends TestCase
         $sessionToUpdate = EventSession::query()->create([
             'event_id' => $event->id,
             'hall_id' => 201,
+            'hall_rental_request_id' => 604,
             'start_time' => Carbon::now()->addDay()->setTime(21, 0),
             'end_time' => Carbon::now()->addDay()->setTime(22, 0),
             'base_price' => 2500,
@@ -224,9 +258,7 @@ class OrganizerSessionControllerTest extends TestCase
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->putJson("/api/organizer/sessions/{$sessionToUpdate->id}", [
-                'hall_id' => 200,
-                'start_time' => Carbon::now()->addDay()->setTime(19, 0)->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
+                'hall_rental_request_id' => 603,
                 'base_price' => 3500,
             ])
             ->assertUnprocessable()
@@ -241,6 +273,7 @@ class OrganizerSessionControllerTest extends TestCase
         $session = EventSession::query()->create([
             'event_id' => $event->id,
             'hall_id' => 101,
+            'hall_rental_request_id' => 701,
             'start_time' => '2026-04-25 18:00:00',
             'end_time' => '2026-04-25 20:00:00',
             'base_price' => 3000,
@@ -271,6 +304,7 @@ class OrganizerSessionControllerTest extends TestCase
         $session = EventSession::query()->create([
             'event_id' => $event->id,
             'hall_id' => 101,
+            'hall_rental_request_id' => 801,
             'start_time' => Carbon::now()->addDay()->setTime(18, 0),
             'end_time' => Carbon::now()->addDay()->setTime(20, 0),
             'base_price' => 3000,
@@ -285,9 +319,7 @@ class OrganizerSessionControllerTest extends TestCase
 
         $this->withHeader('Authorization', 'Bearer organizer-token')
             ->putJson("/api/organizer/sessions/{$session->id}", [
-                'hall_id' => 102,
-                'start_time' => Carbon::now()->addDay()->setTime(21, 0)->toDateTimeString(),
-                'end_time' => Carbon::now()->addDay()->setTime(23, 0)->toDateTimeString(),
+                'hall_rental_request_id' => 802,
                 'base_price' => 3500,
             ])
             ->assertUnprocessable()
@@ -303,6 +335,7 @@ class OrganizerSessionControllerTest extends TestCase
         $session = EventSession::query()->create([
             'event_id' => $event->id,
             'hall_id' => 101,
+            'hall_rental_request_id' => 901,
             'start_time' => Carbon::now()->addDay()->setTime(18, 0),
             'end_time' => Carbon::now()->addDay()->setTime(20, 0),
             'base_price' => 3000,
@@ -326,12 +359,18 @@ class OrganizerSessionControllerTest extends TestCase
     /**
      * @param  array<int, array<string, mixed>>  $halls
      * @param  array<int, array<string, mixed>>  $sessionImpacts
+     * @param  array<int, array<string, mixed>>  $rentalRequests
      */
-    private function fakeOrganizerDependencies(int $organizerId, array $halls = [], array $sessionImpacts = []): void
+    private function fakeOrganizerDependencies(
+        int $organizerId,
+        array $halls = [],
+        array $sessionImpacts = [],
+        array $rentalRequests = [],
+    ): void
     {
         Http::preventStrayRequests();
 
-        Http::fake(function (HttpRequest $request) use ($organizerId, $halls, $sessionImpacts) {
+        Http::fake(function (HttpRequest $request) use ($organizerId, $halls, $sessionImpacts, $rentalRequests) {
             if ($request->url() === 'http://127.0.0.1:8000/api/me') {
                 return Http::response([
                     'user' => [
@@ -345,6 +384,18 @@ class OrganizerSessionControllerTest extends TestCase
                 ], 200);
             }
 
+            if (preg_match('#^http://127\.0\.0\.1:8002/api/halls/(\d+)$#', $request->url(), $matches) === 1) {
+                $hallId = (int) $matches[1];
+
+                if (array_key_exists($hallId, $halls)) {
+                    return Http::response($halls[$hallId], 200);
+                }
+
+                return Http::response([
+                    'message' => 'Hall not found.',
+                ], 404);
+            }
+
             if (preg_match('#^http://127\.0\.0\.1:8002/api/organizer/halls/(\d+)$#', $request->url(), $matches) === 1) {
                 $hallId = (int) $matches[1];
 
@@ -354,6 +405,18 @@ class OrganizerSessionControllerTest extends TestCase
 
                 return Http::response([
                     'message' => 'Hall not found.',
+                ], 404);
+            }
+
+            if (preg_match('#^http://127\.0\.0\.1:8002/api/organizer/hall-rental-requests/(\d+)$#', $request->url(), $matches) === 1) {
+                $requestId = (int) $matches[1];
+
+                if (array_key_exists($requestId, $rentalRequests)) {
+                    return Http::response($rentalRequests[$requestId], 200);
+                }
+
+                return Http::response([
+                    'message' => 'Rental request not found.',
                 ], 404);
             }
 
@@ -389,6 +452,8 @@ class OrganizerSessionControllerTest extends TestCase
             'address' => $address,
             'description' => 'Organizer hall used for sessions.',
             'organizer_id' => $organizerId,
+            'venue_owner_id' => 900 + $hallId,
+            'hourly_rate' => 2500,
             'status' => 'active',
             'capacities' => [
                 'seat' => 120,
@@ -401,6 +466,37 @@ class OrganizerSessionControllerTest extends TestCase
                 'elements_count' => 8,
                 'has_dancefloor' => true,
             ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function rentalRequestPayload(
+        int $requestId,
+        int $hallId,
+        int $organizerId,
+        int $eventId,
+        string $startTime,
+        string $endTime,
+        string $status = 'approved',
+    ): array {
+        return [
+            'id' => $requestId,
+            'hall_id' => $hallId,
+            'event_id' => $eventId,
+            'organizer_id' => $organizerId,
+            'status' => $status,
+            'requested_start' => $startTime,
+            'requested_end' => $endTime,
+            'hourly_rate' => 2500,
+            'total_amount' => 5000,
+            'duration_minutes' => 120,
+            'organizer_message' => null,
+            'response_note' => null,
+            'responded_at' => Carbon::now()?->toISOString(),
+            'created_at' => Carbon::now()?->toISOString(),
+            'updated_at' => Carbon::now()?->toISOString(),
         ];
     }
 
@@ -423,7 +519,7 @@ class OrganizerSessionControllerTest extends TestCase
             'category_id' => $category->id,
             'age_rating_id' => $ageRating->id,
             'organizer_id' => $organizerId,
-            'status' => Event::STATUS_DRAFT,
+            'status' => Event::STATUS_PUBLISHED,
         ]);
     }
 

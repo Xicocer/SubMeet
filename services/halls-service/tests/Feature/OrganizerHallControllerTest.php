@@ -21,6 +21,10 @@ class OrganizerHallControllerTest extends TestCase
                 'name' => 'Main Arena',
                 'address' => 'Нижний Новгород, ул. Большая Покровская, 1',
                 'description' => 'Universal concert hall for the MVP.',
+                'photo_urls' => [
+                    'https://example.com/halls/main-arena-1.jpg',
+                    'https://example.com/halls/main-arena-2.jpg',
+                ],
                 'hourly_rate' => 12000,
                 'status' => 'active',
                 'layout' => $this->validLayout(),
@@ -30,6 +34,7 @@ class OrganizerHallControllerTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('hall.name', 'Main Arena')
             ->assertJsonPath('hall.address', 'Нижний Новгород, ул. Большая Покровская, 1')
+            ->assertJsonPath('hall.photo_urls.0', 'https://example.com/halls/main-arena-1.jpg')
             ->assertJsonPath('hall.venue_owner_id', 77)
             ->assertJsonPath('hall.hourly_rate', 12000)
             ->assertJsonPath('hall.status', 'active')
@@ -51,7 +56,7 @@ class OrganizerHallControllerTest extends TestCase
         ]);
     }
 
-    public function test_store_rejects_layout_without_stage(): void
+    public function test_store_allows_layout_without_stage(): void
     {
         $this->fakeVenueOwnerAuth(77);
         $layout = $this->validLayout();
@@ -62,13 +67,14 @@ class OrganizerHallControllerTest extends TestCase
 
         $this->withHeader('Authorization', 'Bearer venue-token')
             ->postJson('/api/venue/halls', [
-                'name' => 'Broken Hall',
+                'name' => 'Restaurant Hall',
                 'hourly_rate' => 12000,
                 'address' => 'Нижний Новгород, проспект Гагарина, 10',
                 'layout' => $layout,
             ])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['layout.stage']);
+            ->assertCreated()
+            ->assertJsonPath('hall.layout_meta.has_stage', false)
+            ->assertJsonPath('hall.capacities.total', 153);
     }
 
     public function test_show_returns_only_own_hall(): void
@@ -161,6 +167,17 @@ class OrganizerHallControllerTest extends TestCase
             'x' => 260,
             'y' => 320,
         ];
+        $updatedLayout['elements'][] = [
+            'id' => 'table-main',
+            'type' => 'table',
+            'label' => 'Столик 1',
+            'level_id' => 'parter',
+            'capacity' => 4,
+            'x' => 420,
+            'y' => 320,
+            'width' => 120,
+            'height' => 90,
+        ];
         $updatedLayout['elements'][4]['capacity'] = 180;
 
         $this->withHeader('Authorization', 'Bearer venue-token')
@@ -175,17 +192,19 @@ class OrganizerHallControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('hall.name', 'Updated Hall')
             ->assertJsonPath('hall.address', 'Новый адрес, 15')
-            ->assertJsonPath('hall.capacities.seat', 3)
-            ->assertJsonPath('hall.capacities.total', 184);
+            ->assertJsonPath('hall.capacities.seat', 7)
+            ->assertJsonPath('hall.capacities.table', 4)
+            ->assertJsonPath('hall.layout_meta.tables_count', 1)
+            ->assertJsonPath('hall.capacities.total', 188);
 
         $this->assertDatabaseHas('halls', [
             'id' => $hall->id,
             'name' => 'Updated Hall',
             'address' => 'Новый адрес, 15',
             'hourly_rate' => 18000,
-            'seat_capacity' => 3,
+            'seat_capacity' => 7,
             'dancefloor_capacity' => 180,
-            'total_capacity' => 184,
+            'total_capacity' => 188,
             'status' => 'active',
         ]);
     }

@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             HallSeeder::class,
+            HallUnavailablePeriodSeeder::class,
             HallRentalRequestSeeder::class,
         ]);
     }

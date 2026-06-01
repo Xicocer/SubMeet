@@ -38,7 +38,7 @@ interface ActiveInteraction {
   preview: ElementGeometry
 }
 
-const RESIZABLE_TYPES = new Set<HallElementType>(['stage', 'dancefloor'])
+const RESIZABLE_TYPES = new Set<HallElementType>(['stage', 'dancefloor', 'table'])
 
 const props = withDefaults(
   defineProps<{
@@ -119,6 +119,10 @@ const getPointerPosition = (event: DragEvent) => {
 const getResizableMinSize = (element: HallLayoutElement) => {
   if (element.type === 'stage') {
     return { width: 160, height: 60 }
+  }
+
+  if (element.type === 'table') {
+    return { width: 70, height: 60 }
   }
 
   return { width: 120, height: 80 }
@@ -357,6 +361,10 @@ const elementClasses = (element: HallLayoutElement) => {
     return 'border-emerald-300 bg-emerald-100/90 text-emerald-950'
   }
 
+  if (element.type === 'table') {
+    return 'border-orange-300 bg-orange-100/90 text-orange-950'
+  }
+
   if (element.type === 'vip_seat') {
     return 'border-amber-300 bg-amber-50 text-amber-950'
   }
@@ -412,8 +420,8 @@ onBeforeUnmount(() => {
         >
           <div class="px-2">
             <div>{{ getElementLabel(element) }}</div>
-            <div v-if="element.type === 'dancefloor'" class="mt-1 text-[10px] font-medium opacity-75">
-              до {{ element.capacity ?? 0 }} человек
+            <div v-if="element.type === 'dancefloor' || element.type === 'table'" class="mt-1 text-[10px] font-medium opacity-75">
+              {{ element.type === 'table' ? `${element.capacity ?? 2} мест` : `до ${element.capacity ?? 0} человек` }}
             </div>
           </div>
 

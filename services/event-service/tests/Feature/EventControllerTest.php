@@ -91,12 +91,56 @@ class EventControllerTest extends TestCase
             ->assertJsonPath('data.0.title', 'rock concert')
             ->assertJsonPath('data.0.category.slug', 'concert')
             ->assertJsonPath('data.0.age_rating.min_age', 16)
-            ->assertJsonPath('data.0.tags.0.slug', 'rock')
-            ->assertJsonPath('data.0.is_wanted', false);
+            ->assertJsonFragment(['slug' => 'rock'])
+            ->assertJsonPath('data.0.is_wanted', false)
+            ->assertJsonPath('data.0.is_teaser', true);
+    }
+
+    public function test_index_matches_russian_word_forms_with_search_fallback(): void
+    {
+        $category = Category::query()->create([
+            'name' => 'Концерт',
+            'slug' => 'concert',
+        ]);
+
+        $ageRating = AgeRating::query()->create([
+            'label' => '16+',
+            'min_age' => 16,
+        ]);
+
+        Event::query()->create([
+            'title' => 'Ночной рок-концерт на крыше',
+            'description' => 'Живой звук и летняя сцена',
+            'poster_url' => null,
+            'category_id' => $category->id,
+            'age_rating_id' => $ageRating->id,
+            'organizer_id' => 10,
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        $response = $this->getJson('/api/events?search=концерты&per_page=5');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.title', 'Ночной рок-концерт на крыше');
     }
 
     public function test_show_returns_full_published_event_card(): void
     {
+        Http::preventStrayRequests();
+        Http::fake(function (HttpRequest $request) {
+            if (str_contains($request->url(), '/api/events/') && str_contains($request->url(), '/hall-rental-requests')) {
+                return Http::response([
+                    'data' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'message' => 'Unexpected request: ' . $request->url(),
+            ], 500);
+        });
+
         $category = Category::query()->create([
             'name' => 'Concert',
             'slug' => 'concert',
@@ -135,8 +179,10 @@ class EventControllerTest extends TestCase
             ->assertJsonPath('age_rating.label', '16+')
             ->assertJsonPath('organizer_id', 25)
             ->assertJsonPath('status', Event::STATUS_PUBLISHED)
-            ->assertJsonPath('tags.0.name', 'premiere')
-            ->assertJsonPath('is_wanted', false);
+            ->assertJsonFragment(['name' => 'premiere', 'slug' => 'premiere'])
+            ->assertJsonPath('is_wanted', false)
+            ->assertJsonPath('is_teaser', true)
+            ->assertJsonPath('tentative_dates', []);
     }
 
     public function test_show_marks_event_as_wanted_for_authorized_user(): void

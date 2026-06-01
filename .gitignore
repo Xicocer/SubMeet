@@ -2,6 +2,7 @@
 .tools/
 
 documents/
+doc-diploma/
 
 # Python environments and caches
 .venv/
@@ -22,6 +23,8 @@ ENV/
 .coverage
 .coverage.*
 htmlcov/
+
+doc_diploma/
 
 # Python packaging/build artifacts
 build/

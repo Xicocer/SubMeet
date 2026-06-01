@@ -64,7 +64,9 @@ onMounted(async () => {
           <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div class="flex flex-wrap items-center gap-4 sm:gap-6">
               <RouterLink to="/events" class="flex items-center gap-3">
-                <span class="brand-mark">SM</span>
+                <span class="brand-mark">
+                  <img src="/logo.png" alt="SubMeet" class="h-full w-full object-contain p-1" />
+                </span>
                 <div>
                   <p class="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-blue-600">
                     SubMeet

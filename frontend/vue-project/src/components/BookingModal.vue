@@ -66,14 +66,18 @@ const selectedElements = computed(() => {
     .filter((element): element is BookingLayoutElement => element !== null)
 })
 
-const selectedSeatElements = computed(() => selectedElements.value.filter((element) => element.type !== 'dancefloor'))
-const selectedStandingElements = computed(() => selectedElements.value.filter((element) => element.type === 'dancefloor'))
+const isQuantityElement = (element: BookingLayoutElement | null) => {
+  return element?.type === 'dancefloor' || element?.type === 'table'
+}
+
+const selectedSeatElements = computed(() => selectedElements.value.filter((element) => !isQuantityElement(element)))
+const selectedStandingElements = computed(() => selectedElements.value.filter((element) => isQuantityElement(element)))
 
 const elementPrice = (element: BookingLayoutElement) => Number(element.price ?? availability.value?.session.base_price ?? 0)
 
 const selectedTotal = computed(() => {
   return selectedElements.value.reduce((total, element) => {
-    const quantity = element.type === 'dancefloor'
+    const quantity = isQuantityElement(element)
       ? Math.max(1, Number(standingQuantities.value[element.id] ?? 1))
       : 1
 
@@ -83,7 +87,7 @@ const selectedTotal = computed(() => {
 
 const selectedTicketsCount = computed(() => {
   return selectedElements.value.reduce((total, element) => {
-    return total + (element.type === 'dancefloor' ? Math.max(1, Number(standingQuantities.value[element.id] ?? 1)) : 1)
+    return total + (isQuantityElement(element) ? Math.max(1, Number(standingQuantities.value[element.id] ?? 1)) : 1)
   }, 0)
 })
 
@@ -117,7 +121,7 @@ const isElementAvailable = (element: BookingLayoutElement | null) => {
     return false
   }
 
-  if (element.type === 'dancefloor') {
+  if (isQuantityElement(element)) {
     return Number(element.capacity_available ?? 0) > 0
   }
 
@@ -176,12 +180,17 @@ const syncSelection = (nextAvailability: SessionAvailabilityResponse, previousSe
   selectedElementIds.value = selectedElementIds.value.filter((elementId) => {
     const nextElement = nextAvailability.layout.elements.find((element) => element.id === elementId) ?? null
 
+    if (nextElement === null) {
+      delete standingQuantities.value[elementId]
+      return false
+    }
+
     if (!isElementAvailable(nextElement)) {
       delete standingQuantities.value[elementId]
       return false
     }
 
-    if (nextElement?.type === 'dancefloor') {
+    if (isQuantityElement(nextElement)) {
       const currentQuantity = Math.max(1, Number(standingQuantities.value[elementId] ?? 1))
       standingQuantities.value[elementId] = Math.min(currentQuantity, Number(nextElement.capacity_available ?? 1))
     }
@@ -338,7 +347,7 @@ const selectElement = (elementId: string | null) => {
   } else {
     selectedElementIds.value = [...selectedElementIds.value, elementId]
 
-    if (element?.type === 'dancefloor') {
+    if (isQuantityElement(element)) {
       standingQuantities.value[elementId] = 1
     }
   }
@@ -640,10 +649,10 @@ onBeforeUnmount(() => {
                       <div class="flex items-start justify-between gap-3">
                         <div>
                           <p class="font-semibold text-slate-950">
-                            {{ element.label || (element.type === 'dancefloor' ? 'Танцпол' : 'Место') }}
+                            {{ element.label || (element.type === 'dancefloor' ? 'Танцпол' : element.type === 'table' ? 'Столик' : 'Место') }}
                           </p>
                           <p class="mt-1 text-sm text-slate-500">
-                            {{ element.type === 'dancefloor' ? 'Билеты без места' : 'Конкретное место на схеме' }}
+                            {{ element.type === 'dancefloor' ? 'Билеты без места' : element.type === 'table' ? 'Места за выбранным столиком' : 'Конкретное место на схеме' }}
                           </p>
                         </div>
                         <p class="text-sm font-semibold text-blue-700">
@@ -651,9 +660,9 @@ onBeforeUnmount(() => {
                         </p>
                       </div>
 
-                      <div v-if="element.type === 'dancefloor'" class="mt-3">
+                      <div v-if="element.type === 'dancefloor' || element.type === 'table'" class="mt-3">
                         <label class="field-label" :for="`standing-${element.id}`">
-                          Количество билетов, доступно {{ element.capacity_available ?? 0 }}
+                          {{ element.type === 'table' ? 'Количество мест за столиком' : 'Количество билетов' }}, доступно {{ element.capacity_available ?? 0 }}
                         </label>
                         <input
                           :id="`standing-${element.id}`"

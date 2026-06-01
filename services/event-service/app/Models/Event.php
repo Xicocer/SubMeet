@@ -8,10 +8,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Laravel\Scout\Attributes\SearchUsingFullText;
+use Laravel\Scout\Searchable;
 
 class Event extends Model
 {
     use HasFactory;
+    use Searchable;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_PENDING_REVIEW = 'pending_review';
@@ -74,5 +77,22 @@ class Event extends Model
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_PUBLISHED);
+    }
+
+    public function shouldBeSearchable(): bool
+    {
+        return $this->status === self::STATUS_PUBLISHED;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    #[SearchUsingFullText(['title', 'description'])]
+    public function toSearchableArray(): array
+    {
+        return [
+            'title' => (string) $this->title,
+            'description' => (string) $this->description,
+        ];
     }
 }

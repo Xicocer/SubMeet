@@ -377,6 +377,7 @@ class OrganizerSessionController extends Controller
             'name' => $hall['name'] ?? null,
             'address' => $hall['address'] ?? null,
             'description' => $hall['description'] ?? null,
+            'photo_urls' => $hall['photo_urls'] ?? [],
             'venue_owner_id' => $hall['venue_owner_id'] ?? null,
             'status' => $hall['status'] ?? null,
             'hourly_rate' => $hall['hourly_rate'] ?? null,

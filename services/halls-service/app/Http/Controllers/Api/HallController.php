@@ -74,15 +74,18 @@ class HallController extends Controller
             'name' => $hall->name,
             'address' => $hall->address,
             'description' => $hall->description,
+            'photo_urls' => $hall->photo_urls ?? [],
             'venue_owner_id' => $hall->venue_owner_id,
             'status' => $hall->status,
             'hourly_rate' => (float) $hall->hourly_rate,
             'capacities' => [
                 'seat' => $hall->seat_capacity,
+                'table' => $this->calculateTableCapacity($hall->layout['elements'] ?? []),
                 'vip' => $hall->vip_capacity,
                 'dancefloor' => $hall->dancefloor_capacity,
                 'total' => $hall->total_capacity,
             ],
+            'layout_meta' => $this->layoutMeta($hall->layout),
             'created_at' => $hall->created_at?->toISOString(),
             'updated_at' => $hall->updated_at?->toISOString(),
         ];
@@ -92,5 +95,44 @@ class HallController extends Controller
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $layout
+     * @return array<string, mixed>
+     */
+    private function layoutMeta(?array $layout): array
+    {
+        $levels = $layout['levels'] ?? [];
+        $elements = $layout['elements'] ?? [];
+        $elementsCollection = collect(is_array($elements) ? $elements : []);
+
+        return [
+            'levels_count' => is_array($levels) ? count($levels) : 0,
+            'elements_count' => $elementsCollection->count(),
+            'has_dancefloor' => $elementsCollection->contains(
+                fn ($element) => is_array($element) && ($element['type'] ?? null) === 'dancefloor'
+            ),
+            'has_stage' => $elementsCollection->contains(
+                fn ($element) => is_array($element) && ($element['type'] ?? null) === 'stage'
+            ),
+            'tables_count' => $elementsCollection->filter(
+                fn ($element) => is_array($element) && ($element['type'] ?? null) === 'table'
+            )->count(),
+        ];
+    }
+
+    /**
+     * @param  mixed  $elements
+     */
+    private function calculateTableCapacity(mixed $elements): int
+    {
+        if (!is_array($elements)) {
+            return 0;
+        }
+
+        return (int) collect($elements)
+            ->filter(fn ($element) => is_array($element) && ($element['type'] ?? null) === 'table')
+            ->sum(fn ($element) => (int) ($element['capacity'] ?? 2));
     }
 }

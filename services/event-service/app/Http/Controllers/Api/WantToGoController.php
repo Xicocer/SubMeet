@@ -48,6 +48,7 @@ class WantToGoController extends Controller
         $favorites = EventFavorite::query()
             ->with([
                 'event' => fn ($query) => $query->withCount([
+                    'sessions',
                     'sessions as available_sessions_count' => fn ($sessionQuery) => $sessionQuery->available(),
                 ]),
                 'event.category:id,name,slug',
@@ -59,6 +60,28 @@ class WantToGoController extends Controller
             ->whereIn('event_id', $publishedEventIds->all())
             ->latest('created_at')
             ->get();
+
+        $staleFavorites = $favorites
+            ->filter(function (EventFavorite $favorite): bool {
+                $event = $favorite->event;
+
+                if (!$event instanceof Event) {
+                    return false;
+                }
+
+                return (int) ($event->getAttribute('sessions_count') ?? 0) > 0
+                    && (int) ($event->getAttribute('available_sessions_count') ?? 0) === 0;
+            });
+
+        if ($staleFavorites->isNotEmpty()) {
+            EventFavorite::query()
+                ->whereIn('id', $staleFavorites->pluck('id')->all())
+                ->delete();
+
+            $favorites = $favorites
+                ->reject(fn (EventFavorite $favorite) => $staleFavorites->contains('id', $favorite->id))
+                ->values();
+        }
 
         $events = $favorites
             ->pluck('event')
@@ -232,9 +255,12 @@ class WantToGoController extends Controller
             'name' => $hall['name'] ?? null,
             'address' => $hall['address'] ?? null,
             'description' => $hall['description'] ?? null,
+            'photo_urls' => $hall['photo_urls'] ?? [],
             'organizer_id' => $hall['organizer_id'] ?? null,
+            'venue_owner_id' => $hall['venue_owner_id'] ?? null,
             'status' => $hall['status'] ?? null,
             'capacities' => $hall['capacities'] ?? null,
+            'layout_meta' => $hall['layout_meta'] ?? null,
         ];
     }
 

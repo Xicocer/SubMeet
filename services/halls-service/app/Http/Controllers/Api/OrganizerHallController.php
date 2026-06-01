@@ -59,6 +59,7 @@ class OrganizerHallController extends Controller
             'name' => $validated['name'],
             'address' => $validated['address'],
             'description' => $validated['description'] ?? null,
+            'photo_urls' => $this->normalizePhotoUrls($validated['photo_urls'] ?? []),
             'hourly_rate' => $validated['hourly_rate'],
             'layout' => $validated['layout'],
             'seat_capacity' => $summary['seat_capacity'],
@@ -93,6 +94,7 @@ class OrganizerHallController extends Controller
             'name' => $validated['name'],
             'address' => $validated['address'],
             'description' => $validated['description'] ?? null,
+            'photo_urls' => $this->normalizePhotoUrls($validated['photo_urls'] ?? []),
             'hourly_rate' => $validated['hourly_rate'],
             'layout' => $validated['layout'],
             'seat_capacity' => $summary['seat_capacity'],
@@ -139,6 +141,8 @@ class OrganizerHallController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'photo_urls' => ['nullable', 'array', 'max:8'],
+            'photo_urls.*' => ['required', 'url', 'max:2048'],
             'hourly_rate' => ['required', 'numeric', 'min:0'],
             'status' => ['nullable', 'in:draft,active'],
             'layout' => ['required', 'array'],
@@ -151,7 +155,7 @@ class OrganizerHallController extends Controller
             'layout.levels.*.order' => ['nullable', 'integer', 'min:1'],
             'layout.elements' => ['required', 'array', 'min:1'],
             'layout.elements.*.id' => ['required', 'string', 'max:100'],
-            'layout.elements.*.type' => ['required', 'string', 'in:stage,seat,vip_seat,dancefloor'],
+            'layout.elements.*.type' => ['required', 'string', 'in:stage,seat,vip_seat,dancefloor,table'],
             'layout.elements.*.label' => ['nullable', 'string', 'max:255'],
             'layout.elements.*.level_id' => ['nullable', 'string', 'max:100'],
             'layout.elements.*.row' => ['nullable', 'string', 'max:50'],
@@ -166,6 +170,21 @@ class OrganizerHallController extends Controller
         $summary = $this->hallLayoutService->validateAndSummarize($validated['layout']);
 
         return [$validated, $summary];
+    }
+
+    /**
+     * @param  array<int, mixed>  $photoUrls
+     * @return array<int, string>
+     */
+    private function normalizePhotoUrls(array $photoUrls): array
+    {
+        return collect($photoUrls)
+            ->map(fn (mixed $url) => trim((string) $url))
+            ->filter()
+            ->unique()
+            ->take(8)
+            ->values()
+            ->all();
     }
 
     private function findVenueHallOrFail(int $hallId, int $venueOwnerId): Hall
@@ -201,11 +220,13 @@ class OrganizerHallController extends Controller
             'name' => $hall->name,
             'address' => $hall->address,
             'description' => $hall->description,
+            'photo_urls' => $hall->photo_urls ?? [],
             'venue_owner_id' => $hall->venue_owner_id,
             'status' => $hall->status,
             'hourly_rate' => (float) $hall->hourly_rate,
             'capacities' => [
                 'seat' => $hall->seat_capacity,
+                'table' => $this->calculateTableCapacity($elements),
                 'vip' => $hall->vip_capacity,
                 'dancefloor' => $hall->dancefloor_capacity,
                 'total' => $hall->total_capacity,
@@ -216,10 +237,30 @@ class OrganizerHallController extends Controller
                 'has_dancefloor' => collect($elements)->contains(
                     fn ($element) => is_array($element) && ($element['type'] ?? null) === 'dancefloor'
                 ),
+                'has_stage' => collect($elements)->contains(
+                    fn ($element) => is_array($element) && ($element['type'] ?? null) === 'stage'
+                ),
+                'tables_count' => collect($elements)->filter(
+                    fn ($element) => is_array($element) && ($element['type'] ?? null) === 'table'
+                )->count(),
             ],
             'created_at' => $hall->created_at?->toISOString(),
             'updated_at' => $hall->updated_at?->toISOString(),
         ];
+    }
+
+    /**
+     * @param  mixed  $elements
+     */
+    private function calculateTableCapacity(mixed $elements): int
+    {
+        if (!is_array($elements)) {
+            return 0;
+        }
+
+        return (int) collect($elements)
+            ->filter(fn ($element) => is_array($element) && ($element['type'] ?? null) === 'table')
+            ->sum(fn ($element) => (int) ($element['capacity'] ?? 2));
     }
 
     /**

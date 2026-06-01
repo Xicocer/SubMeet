@@ -4,6 +4,7 @@ import type { PaginatedResponse } from '@/types/event'
 import type {
   HallDetails,
   HallFilters,
+  HallAvailabilityResponse,
   HallRentalRequest,
   HallRentalRequestPayload,
   HallRentalRequestStatusPayload,
@@ -11,10 +12,28 @@ import type {
   HallPayload,
   PublicHallFilters,
   HallSummary,
+  HallUnavailablePeriod,
+  HallUnavailablePeriodPayload,
 } from '@/types/hall'
 
 export const getPublicHallsRequest = async (params: PublicHallFilters) => {
   const { data } = await hallApi.get<PaginatedResponse<HallSummary>>('/halls', { params })
+  return data
+}
+
+export const getHallAvailabilityRequest = async (
+  id: number,
+  params?: { from?: string; to?: string },
+) => {
+  const { data } = await hallApi.get<HallAvailabilityResponse>(`/halls/${id}/availability`, { params })
+  return data
+}
+
+export const getVenueHallAvailabilityRequest = async (
+  id: number,
+  params?: { from?: string; to?: string },
+) => {
+  const { data } = await hallApi.get<HallAvailabilityResponse>(`/venue/halls/${id}/availability`, { params })
   return data
 }
 
@@ -56,7 +75,11 @@ export const getOrganizerHallRentalRequestsRequest = async (params?: Record<stri
 }
 
 export const createOrganizerHallRentalRequest = async (payload: HallRentalRequestPayload) => {
-  const { data } = await hallApi.post<{ message: string; rental_request: HallRentalRequest }>(
+  const { data } = await hallApi.post<{
+    message: string
+    rental_request: HallRentalRequest | null
+    rental_requests?: HallRentalRequest[]
+  }>(
     '/organizer/hall-rental-requests',
     payload,
   )
@@ -78,6 +101,33 @@ export const updateVenueHallRentalRequestStatus = async (
     `/venue/hall-rental-requests/${id}`,
     payload,
   )
+  return data
+}
+
+export const getVenueHallUnavailablePeriodsRequest = async (
+  id: number,
+  params?: { from?: string; to?: string },
+) => {
+  const { data } = await hallApi.get<{ data: HallUnavailablePeriod[] }>(
+    `/venue/halls/${id}/unavailable-periods`,
+    { params },
+  )
+  return data
+}
+
+export const createVenueHallUnavailablePeriodRequest = async (
+  id: number,
+  payload: HallUnavailablePeriodPayload,
+) => {
+  const { data } = await hallApi.post<{ message: string; period: HallUnavailablePeriod }>(
+    `/venue/halls/${id}/unavailable-periods`,
+    payload,
+  )
+  return data
+}
+
+export const deleteVenueHallUnavailablePeriodRequest = async (id: number) => {
+  const { data } = await hallApi.delete<{ message: string }>(`/venue/hall-unavailable-periods/${id}`)
   return data
 }
 

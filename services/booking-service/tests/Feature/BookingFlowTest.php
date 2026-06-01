@@ -28,8 +28,8 @@ class BookingFlowTest extends TestCase
             ->assertJsonPath('session.event_title', 'Rock Night')
             ->assertJsonPath('summary.seats_total', 2)
             ->assertJsonPath('summary.seats_free', 2)
-            ->assertJsonPath('summary.standing_total', 10)
-            ->assertJsonPath('summary.standing_available', 10);
+            ->assertJsonPath('summary.standing_total', 12)
+            ->assertJsonPath('summary.standing_available', 12);
 
         $this->assertDatabaseHas('session_snapshots', [
             'event_session_id' => 900,
@@ -37,7 +37,7 @@ class BookingFlowTest extends TestCase
         ]);
 
         $this->assertDatabaseCount('session_seats', 2);
-        $this->assertDatabaseCount('session_standing_areas', 1);
+        $this->assertDatabaseCount('session_standing_areas', 2);
     }
 
     public function test_store_creates_pending_booking_and_reserves_inventory(): void
@@ -100,15 +100,44 @@ class BookingFlowTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('summary.standing_total', 10)
-            ->assertJsonPath('summary.standing_available', 9)
+            ->assertJsonPath('summary.standing_total', 12)
+            ->assertJsonPath('summary.standing_available', 11)
             ->assertJsonPath('layout.elements.3.capacity_total', 10)
-            ->assertJsonPath('layout.elements.3.capacity_available', 9);
+            ->assertJsonPath('layout.elements.3.capacity_available', 9)
+            ->assertJsonPath('layout.elements.4.capacity_total', 2)
+            ->assertJsonPath('layout.elements.4.capacity_available', 2);
 
         $cacheControl = (string) $response->headers->get('Cache-Control', '');
 
         $this->assertStringContainsString('no-store', $cacheControl);
         $this->assertStringContainsString('no-cache', $cacheControl);
+    }
+
+    public function test_store_can_reserve_places_at_table_element(): void
+    {
+        $this->fakeUpstream();
+
+        $this
+            ->withToken('token-user-1')
+            ->postJson('/api/bookings', [
+                'session_id' => 900,
+                'standing' => [
+                    [
+                        'element_id' => 'table-1',
+                        'quantity' => 2,
+                    ],
+                ],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('booking.total_amount', '2000.00')
+            ->assertJsonPath('booking.items.0.element_id', 'table-1')
+            ->assertJsonPath('booking.items.0.quantity', 2);
+
+        $this->assertDatabaseHas('session_standing_areas', [
+            'element_id' => 'table-1',
+            'capacity_total' => 2,
+            'capacity_available' => 0,
+        ]);
     }
 
     public function test_store_rejects_double_booking_for_same_seat(): void
@@ -404,9 +433,10 @@ class BookingFlowTest extends TestCase
             'status' => 'active',
             'capacities' => [
                 'seat' => 1,
+                'table' => 2,
                 'vip' => 1,
                 'dancefloor' => 10,
-                'total' => 12,
+                'total' => 14,
             ],
             'layout' => [
                 'canvas' => [
@@ -460,6 +490,17 @@ class BookingFlowTest extends TestCase
                         'y' => 380,
                         'width' => 700,
                         'height' => 220,
+                    ],
+                    [
+                        'id' => 'table-1',
+                        'type' => 'table',
+                        'label' => 'Table 1',
+                        'level_id' => 'parterre',
+                        'capacity' => 2,
+                        'x' => 500,
+                        'y' => 640,
+                        'width' => 120,
+                        'height' => 90,
                     ],
                 ],
             ],

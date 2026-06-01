@@ -17,6 +17,7 @@ const DEFAULT_ELEMENT_SIZES: Record<HallElementType, { width: number; height: nu
   seat: { width: 42, height: 42 },
   vip_seat: { width: 52, height: 52 },
   dancefloor: { width: 260, height: 170 },
+  table: { width: 110, height: 82 },
 }
 
 export const snapToGrid = (value: number, gridSize = 10) => Math.round(value / gridSize) * gridSize
@@ -56,7 +57,9 @@ export const createHallElement = (
           ? 'Танцпол'
           : type === 'vip_seat'
             ? 'VIP'
-            : 'Место',
+            : type === 'table'
+              ? 'Столик'
+              : 'Место',
     x: 120,
     y: 120,
     width: size.width,
@@ -77,6 +80,11 @@ export const createHallElement = (
 
   if (type === 'dancefloor') {
     base.capacity = 80
+  }
+
+  if (type === 'table') {
+    base.capacity = 2
+    base.label = 'Столик'
   }
 
   return {
@@ -152,6 +160,10 @@ export const getElementLabel = (element: HallLayoutElement) => {
     return element.label || `Танцпол · ${element.capacity ?? 0}`
   }
 
+  if (element.type === 'table') {
+    return element.label || `Столик · ${element.capacity ?? 2}`
+  }
+
   return element.label || 'Сцена'
 }
 
@@ -159,6 +171,8 @@ export const summarizeHallLayout = (
   layout: HallLayout,
 ): {
   seatCount: number
+  tableCapacity: number
+  tableCount: number
   vipCount: number
   dancefloorCapacity: number
   totalCapacity: number
@@ -166,6 +180,8 @@ export const summarizeHallLayout = (
   meta: HallLayoutMeta
 } => {
   let seatCount = 0
+  let tableCapacity = 0
+  let tableCount = 0
   let vipCount = 0
   let dancefloorCapacity = 0
   let hasStage = false
@@ -179,6 +195,11 @@ export const summarizeHallLayout = (
       seatCount += 1
     }
 
+    if (element.type === 'table') {
+      tableCount += 1
+      tableCapacity += Number(element.capacity ?? 2)
+    }
+
     if (element.type === 'vip_seat') {
       vipCount += 1
     }
@@ -190,14 +211,18 @@ export const summarizeHallLayout = (
 
   return {
     seatCount,
+    tableCapacity,
+    tableCount,
     vipCount,
     dancefloorCapacity,
-    totalCapacity: seatCount + vipCount + dancefloorCapacity,
+    totalCapacity: seatCount + tableCapacity + vipCount + dancefloorCapacity,
     hasStage,
     meta: {
       levels_count: layout.levels?.length ?? 0,
       elements_count: layout.elements.length,
       has_dancefloor: layout.elements.some((element) => element.type === 'dancefloor'),
+      has_stage: layout.elements.some((element) => element.type === 'stage'),
+      tables_count: layout.elements.filter((element) => element.type === 'table').length,
     },
   }
 }

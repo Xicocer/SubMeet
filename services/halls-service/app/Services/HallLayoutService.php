@@ -10,6 +10,7 @@ class HallLayoutService
     private const TYPE_SEAT = 'seat';
     private const TYPE_VIP_SEAT = 'vip_seat';
     private const TYPE_DANCEFLOOR = 'dancefloor';
+    private const TYPE_TABLE = 'table';
 
     /**
      * @param array<string, mixed> $layout
@@ -39,6 +40,7 @@ class HallLayoutService
         $stageCount = 0;
         $dancefloorCount = 0;
         $seatCapacity = 0;
+        $tableCapacity = 0;
         $vipCapacity = 0;
         $dancefloorCapacity = 0;
 
@@ -93,6 +95,7 @@ class HallLayoutService
                 self::TYPE_SEAT,
                 self::TYPE_VIP_SEAT,
                 self::TYPE_DANCEFLOOR,
+                self::TYPE_TABLE,
             ], true)) {
                 $errors["{$path}.type"][] = 'Unsupported hall element type.';
                 continue;
@@ -139,6 +142,22 @@ class HallLayoutService
                     $dancefloorCapacity += $capacity;
                     break;
 
+                case self::TYPE_TABLE:
+                    $this->ensurePositiveSize($errors, $path, $element);
+
+                    $capacity = $this->resolvePositiveCapacity(
+                        $errors,
+                        "{$path}.capacity",
+                        $element['capacity'] ?? 2,
+                        'Table capacity must be a positive integer.',
+                    );
+
+                    if ($capacity !== null) {
+                        $tableCapacity += $capacity;
+                    }
+
+                    break;
+
                 case self::TYPE_SEAT:
                 case self::TYPE_VIP_SEAT:
                     $label = trim((string) ($element['label'] ?? ''));
@@ -158,10 +177,6 @@ class HallLayoutService
             }
         }
 
-        if ($stageCount === 0) {
-            $errors['layout.stage'][] = 'Hall layout must contain a stage.';
-        }
-
         if ($stageCount > 1) {
             $errors['layout.stage'][] = 'Only one stage is supported in the MVP hall editor.';
         }
@@ -170,7 +185,7 @@ class HallLayoutService
             $errors['layout.dancefloor'][] = 'Only one dancefloor is supported in the MVP hall editor.';
         }
 
-        $totalCapacity = $seatCapacity + $vipCapacity + $dancefloorCapacity;
+        $totalCapacity = $seatCapacity + $tableCapacity + $vipCapacity + $dancefloorCapacity;
 
         if ($totalCapacity < 1) {
             $errors['layout.capacity'][] = 'Hall must contain at least one bookable place or dancefloor capacity.';
@@ -181,7 +196,8 @@ class HallLayoutService
         }
 
         return [
-            'seat_capacity' => $seatCapacity,
+            'seat_capacity' => $seatCapacity + $tableCapacity,
+            'table_capacity' => $tableCapacity,
             'vip_capacity' => $vipCapacity,
             'dancefloor_capacity' => $dancefloorCapacity,
             'total_capacity' => $totalCapacity,
@@ -204,6 +220,28 @@ class HallLayoutService
         if (!$this->isPositiveNumber($element['height'] ?? null)) {
             $errors["{$path}.height"][] = 'Element height must be greater than 0.';
         }
+    }
+
+    /**
+     * @param array<string, array<int, string>> $errors
+     */
+    private function resolvePositiveCapacity(array &$errors, string $path, mixed $value, string $message): ?int
+    {
+        if (!is_int($value) && !ctype_digit((string) $value)) {
+            $errors[$path][] = $message;
+
+            return null;
+        }
+
+        $capacity = (int) $value;
+
+        if ($capacity < 1) {
+            $errors[$path][] = $message;
+
+            return null;
+        }
+
+        return $capacity;
     }
 
     private function isNumeric(mixed $value): bool

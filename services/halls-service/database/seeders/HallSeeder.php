@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Hall;
 use App\Models\HallRentalRequest;
+use App\Models\HallUnavailablePeriod;
 use Illuminate\Database\Seeder;
 
 class HallSeeder extends Seeder
@@ -11,6 +12,7 @@ class HallSeeder extends Seeder
     public function run(): void
     {
         HallRentalRequest::query()->delete();
+        HallUnavailablePeriod::query()->delete();
         Hall::query()->delete();
 
         $halls = [
@@ -20,6 +22,11 @@ class HallSeeder extends Seeder
                 'name' => 'Крыша на Покровке',
                 'address' => 'Нижний Новгород, ул. Большая Покровская, 18',
                 'description' => 'Открытая концертная площадка на крыше для летних концертов, dj-сетов и камерных фестивалей.',
+                'photo_urls' => [
+                    'https://picsum.photos/seed/submeet-rooftop-hall-1/1200/800',
+                    'https://picsum.photos/seed/submeet-rooftop-hall-2/1200/800',
+                    'https://picsum.photos/seed/submeet-rooftop-hall-3/1200/800',
+                ],
                 'hourly_rate' => 18000,
                 'layout' => $this->buildRooftopConcertLayout(),
                 'status' => Hall::STATUS_ACTIVE,
@@ -30,6 +37,10 @@ class HallSeeder extends Seeder
                 'name' => 'Standup Hall',
                 'address' => 'Нижний Новгород, ул. Рождественская, 22',
                 'description' => 'Камерная площадка для стендапа, открытых микрофонов и небольших концертов.',
+                'photo_urls' => [
+                    'https://picsum.photos/seed/submeet-standup-hall-1/1200/800',
+                    'https://picsum.photos/seed/submeet-standup-hall-2/1200/800',
+                ],
                 'hourly_rate' => 14000,
                 'layout' => $this->buildComedyHallLayout(),
                 'status' => Hall::STATUS_ACTIVE,
@@ -40,6 +51,10 @@ class HallSeeder extends Seeder
                 'name' => 'Black Box Arena',
                 'address' => 'Нижний Новгород, ул. Варварская, 9',
                 'description' => 'Трансформируемая black box сцена для театра, перформансов и иммерсивных шоу.',
+                'photo_urls' => [
+                    'https://picsum.photos/seed/submeet-blackbox-hall-1/1200/800',
+                    'https://picsum.photos/seed/submeet-blackbox-hall-2/1200/800',
+                ],
                 'hourly_rate' => 22000,
                 'layout' => $this->buildBlackBoxLayout(),
                 'status' => Hall::STATUS_ACTIVE,
@@ -50,6 +65,10 @@ class HallSeeder extends Seeder
                 'name' => 'Digital Pavilion',
                 'address' => 'Нижний Новгород, Нижне-Волжская набережная, 3',
                 'description' => 'Павильон для выставок, digital-экспозиций и дневных фестивальных форматов.',
+                'photo_urls' => [
+                    'https://picsum.photos/seed/submeet-pavilion-hall-1/1200/800',
+                    'https://picsum.photos/seed/submeet-pavilion-hall-2/1200/800',
+                ],
                 'hourly_rate' => 26000,
                 'layout' => $this->buildExhibitionLayout(),
                 'status' => Hall::STATUS_ACTIVE,
@@ -60,6 +79,9 @@ class HallSeeder extends Seeder
                 'name' => 'Архивная сцена',
                 'address' => 'Нижний Новгород, ул. Пискунова, 11',
                 'description' => 'Небольшая архивная площадка, временно выведенная из оборота.',
+                'photo_urls' => [
+                    'https://picsum.photos/seed/submeet-small-hall-1/1200/800',
+                ],
                 'hourly_rate' => 9000,
                 'layout' => $this->buildSmallStageLayout(),
                 'status' => Hall::STATUS_ARCHIVED,
@@ -75,6 +97,7 @@ class HallSeeder extends Seeder
                 'name' => $hallData['name'],
                 'address' => $hallData['address'],
                 'description' => $hallData['description'],
+                'photo_urls' => $hallData['photo_urls'] ?? [],
                 'hourly_rate' => $hallData['hourly_rate'],
                 'layout' => $hallData['layout'],
                 'seat_capacity' => $capacities['seat'],
@@ -88,11 +111,12 @@ class HallSeeder extends Seeder
 
     /**
      * @param  array<int, array<string, mixed>>  $elements
-     * @return array{seat: int, vip: int, dancefloor: int, total: int}
+     * @return array{seat: int, table: int, vip: int, dancefloor: int, total: int}
      */
     private function countCapacities(array $elements): array
     {
         $seat = 0;
+        $table = 0;
         $vip = 0;
         $dancefloor = 0;
 
@@ -103,13 +127,18 @@ class HallSeeder extends Seeder
                 $seat++;
             } elseif ($type === 'vip_seat') {
                 $vip++;
+            } elseif ($type === 'table') {
+                $table += max(1, (int) ($element['capacity'] ?? 2));
             } elseif ($type === 'dancefloor') {
                 $dancefloor += (int) ($element['capacity'] ?? 0);
             }
         }
 
+        $seat += $table;
+
         return [
             'seat' => $seat,
+            'table' => $table,
             'vip' => $vip,
             'dancefloor' => $dancefloor,
             'total' => $seat + $vip + $dancefloor,
@@ -163,6 +192,7 @@ class HallSeeder extends Seeder
                 ['id' => 'seat-d2', 'type' => 'seat', 'label' => 'D-2', 'x' => 390, 'y' => 320, 'width' => 42, 'height' => 42, 'row' => 'D', 'number' => '2', 'level_id' => 'main'],
                 ['id' => 'seat-d3', 'type' => 'seat', 'label' => 'D-3', 'x' => 450, 'y' => 320, 'width' => 42, 'height' => 42, 'row' => 'D', 'number' => '3', 'level_id' => 'main'],
                 ['id' => 'seat-d4', 'type' => 'seat', 'label' => 'D-4', 'x' => 510, 'y' => 320, 'width' => 42, 'height' => 42, 'row' => 'D', 'number' => '4', 'level_id' => 'main'],
+                ['id' => 'table-main-1', 'type' => 'table', 'label' => 'Table 1', 'x' => 610, 'y' => 300, 'width' => 118, 'height' => 86, 'capacity' => 4, 'level_id' => 'main'],
                 ['id' => 'vip-e1', 'type' => 'vip_seat', 'label' => 'VIP E-1', 'x' => 360, 'y' => 420, 'width' => 44, 'height' => 44, 'row' => 'E', 'number' => '1', 'level_id' => 'balcony'],
                 ['id' => 'vip-e2', 'type' => 'vip_seat', 'label' => 'VIP E-2', 'x' => 430, 'y' => 420, 'width' => 44, 'height' => 44, 'row' => 'E', 'number' => '2', 'level_id' => 'balcony'],
                 ['id' => 'vip-e3', 'type' => 'vip_seat', 'label' => 'VIP E-3', 'x' => 500, 'y' => 420, 'width' => 44, 'height' => 44, 'row' => 'E', 'number' => '3', 'level_id' => 'balcony'],
