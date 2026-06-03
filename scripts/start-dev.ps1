@@ -82,6 +82,12 @@ $services = @(
         -Url 'http://127.0.0.1:8025' `
         -Command '.\scripts\start-mailpit.ps1'),
     (New-ServiceDefinition `
+        -Name 'Meilisearch' `
+        -Workdir $rootDir `
+        -Port 7700 `
+        -Url 'http://127.0.0.1:7700' `
+        -Command '.\scripts\start-meilisearch.ps1'),
+    (New-ServiceDefinition `
         -Name 'Booking Scheduler' `
         -Workdir (Join-Path $rootDir 'services\booking-service') `
         -Command 'php artisan schedule:work'),

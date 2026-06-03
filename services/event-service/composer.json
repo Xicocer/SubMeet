@@ -12,6 +12,7 @@
         "laravel/sanctum": "^4.3",
         "laravel/scout": "^11.2",
         "laravel/tinker": "^3.0",
+        "meilisearch/meilisearch-php": "^1.16",
         "php-amqplib/php-amqplib": "^2.8"
     },
     "require-dev": {

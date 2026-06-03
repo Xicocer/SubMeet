@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Laravel\Scout\Attributes\SearchUsingFullText;
+use Illuminate\Support\Collection;
 use Laravel\Scout\Searchable;
 
 class Event extends Model
@@ -85,14 +85,39 @@ class Event extends Model
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
-    #[SearchUsingFullText(['title', 'description'])]
     public function toSearchableArray(): array
     {
+        $category = $this->relationLoaded('category')
+            ? $this->category
+            : $this->category()->first(['id', 'name', 'slug']);
+
+        $ageRating = $this->relationLoaded('ageRating')
+            ? $this->ageRating
+            : $this->ageRating()->first(['id', 'label', 'min_age']);
+
+        $tags = $this->relationLoaded('tags')
+            ? $this->tags
+            : $this->tags()->get(['tags.id', 'tags.name', 'tags.slug']);
+
         return [
+            'id' => $this->id,
             'title' => (string) $this->title,
             'description' => (string) $this->description,
+            'category_name' => (string) ($category?->name ?? ''),
+            'category_slug' => (string) ($category?->slug ?? ''),
+            'age_label' => (string) ($ageRating?->label ?? ''),
+            'age_min' => (int) ($ageRating?->min_age ?? 0),
+            'tag_names' => $tags instanceof Collection
+                ? $tags->pluck('name')->filter()->values()->all()
+                : [],
+            'tag_slugs' => $tags instanceof Collection
+                ? $tags->pluck('slug')->filter()->values()->all()
+                : [],
+            'organizer_id' => (int) $this->organizer_id,
+            'status' => (string) $this->status,
+            'created_at' => $this->created_at?->timestamp ?? 0,
         ];
     }
 }

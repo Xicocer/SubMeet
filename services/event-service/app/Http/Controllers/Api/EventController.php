@@ -128,11 +128,15 @@ class EventController extends Controller
             return;
         }
 
-        $scoutEventIds = Event::search($search)
-            ->where('status', Event::STATUS_PUBLISHED)
-            ->keys()
-            ->map(fn ($eventId) => (int) $eventId)
-            ->all();
+        try {
+            $scoutEventIds = Event::search($search)
+                ->where('status', Event::STATUS_PUBLISHED)
+                ->keys()
+                ->map(fn ($eventId) => (int) $eventId)
+                ->all();
+        } catch (Throwable) {
+            $scoutEventIds = [];
+        }
 
         $searchTerms = $this->searchTerms($search);
         $normalizedSearch = mb_strtolower($search);

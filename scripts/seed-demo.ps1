@@ -35,6 +35,25 @@ foreach ($service in $services) {
     }
 }
 
+$eventServiceDir = Join-Path $rootDir 'services\event-service'
+
+Write-Host 'Rebuilding event search index...' -ForegroundColor Cyan
+
+Push-Location $eventServiceDir
+try {
+    php artisan scout:sync-index-settings
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'Search index settings sync failed. Make sure Meilisearch is running on http://127.0.0.1:7700.' -ForegroundColor Yellow
+    }
+
+    php artisan scout:import "App\Models\Event"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'Search index import failed. Make sure Meilisearch is running on http://127.0.0.1:7700.' -ForegroundColor Yellow
+    }
+} finally {
+    Pop-Location
+}
+
 Write-Host ''
 Write-Host 'Demo data is ready.' -ForegroundColor Green
 Write-Host 'Demo accounts:' -ForegroundColor Green

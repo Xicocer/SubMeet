@@ -25,6 +25,20 @@ services:
     networks:
       - diploma-network
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.45.1
+    container_name: diploma-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: submeet-meili-key
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - diploma-network
+
   loki:
     image: grafana/loki:3.2.1
     container_name: diploma-loki
@@ -119,6 +133,9 @@ services:
       HALLS_SERVICE_URL: http://halls-service:8000/api
       RECOMMENDATION_SERVICE_URL: http://recommendation-service:8000/api
       INTERNAL_API_KEY: submeet-internal-key
+      SCOUT_DRIVER: meilisearch
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_KEY: submeet-meili-key
       DB_CONNECTION: mysql
       DB_HOST: mysql
       DB_PORT: 3306
@@ -132,6 +149,7 @@ services:
       - "8001:8000"
     depends_on:
       - mysql
+      - meilisearch
     networks:
       - diploma-network
 
@@ -266,6 +284,7 @@ services:
 
 volumes:
   mysql_data:
+  meilisearch_data:
   loki_data:
   grafana_data:
   promtail_positions:
