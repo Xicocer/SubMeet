@@ -9,14 +9,17 @@ import {
   getEventSessionsRequest,
   removeWantToGoRequest,
 } from '@/api/events'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import type { UserBooking } from '@/types/booking'
 import type { EventDetails, EventSession } from '@/types/event'
+import { downloadSessionCalendarFile, saveRecentlyViewedEvent, shareEvent } from '@/utils/eventUx'
 import { formatDate, formatDateTime, formatPrice } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const { showToast } = useToast()
 
 const event = ref<EventDetails | null>(null)
 const sessions = ref<EventSession[]>([])
@@ -103,6 +106,10 @@ const loadEventDetails = async () => {
 
     event.value = loadedEvent
     sessions.value = loadedSessions
+    saveRecentlyViewedEvent({
+      ...loadedEvent,
+      next_session: loadedSessions[0] ?? loadedEvent.next_session,
+    })
   } catch (requestError) {
     console.error(requestError)
     error.value = 'Не удалось загрузить карточку мероприятия.'
@@ -111,6 +118,56 @@ const loadEventDetails = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleShareEvent = async () => {
+  if (!event.value) {
+    return
+  }
+
+  try {
+    const result = await shareEvent(event.value)
+
+    if (result === 'cancelled') {
+      return
+    }
+
+    showToast({
+      kind: 'success',
+      title: result === 'copied' ? 'Ссылка скопирована' : 'Событие готово к отправке',
+      message: result === 'copied'
+        ? 'Теперь можно отправить ее в чат или мессенджер.'
+        : 'Можно быстро поделиться событием с друзьями.',
+    })
+  } catch (shareError) {
+    console.error(shareError)
+    showToast({
+      kind: 'error',
+      title: 'Не удалось поделиться событием',
+      message: 'Попробуй скопировать ссылку из адресной строки.',
+    })
+  }
+}
+
+const addSessionToCalendar = (session: EventSession | null) => {
+  if (!event.value || !session) {
+    showToast({
+      kind: 'warning',
+      title: 'Сеанс пока не выбран',
+      message: 'Календарь можно создать после появления точной даты события.',
+    })
+    return
+  }
+
+  const created = downloadSessionCalendarFile(event.value, session)
+
+  showToast({
+    kind: created ? 'success' : 'warning',
+    title: created ? 'Файл календаря скачан' : 'Дата сеанса не указана',
+    message: created
+      ? 'Открой .ics-файл, чтобы добавить событие в свой календарь.'
+      : 'Для календаря нужна точная дата и время сеанса.',
+  })
 }
 
 const openBookingModal = (session: EventSession) => {
@@ -310,6 +367,19 @@ watch(eventId, loadEventDetails, { immediate: true })
                 Вернуться в афишу
               </RouterLink>
 
+              <button type="button" class="secondary-button" @click="handleShareEvent">
+                Поделиться
+              </button>
+
+              <button
+                v-if="nextSession"
+                type="button"
+                class="secondary-button"
+                @click="addSessionToCalendar(nextSession)"
+              >
+                В календарь
+              </button>
+
               <a v-if="!isTeaser" href="#event-sessions" class="primary-button">
                 Выбрать сеанс
               </a>
@@ -489,13 +559,23 @@ watch(eventId, loadEventDetails, { immediate: true })
                 Открой схему зала в модальном окне, выбери свободное место и сразу увидишь его стоимость перед бронью.
               </p>
 
-              <button
-                type="button"
-                class="primary-button sm:min-w-56"
-                @click="openBookingModal(session)"
-              >
-                Забронировать
-              </button>
+              <div class="flex flex-wrap gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  class="secondary-button"
+                  @click="addSessionToCalendar(session)"
+                >
+                  В календарь
+                </button>
+
+                <button
+                  type="button"
+                  class="primary-button sm:min-w-56"
+                  @click="openBookingModal(session)"
+                >
+                  Забронировать
+                </button>
+              </div>
             </div>
           </article>
         </div>

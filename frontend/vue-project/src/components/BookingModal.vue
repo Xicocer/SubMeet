@@ -8,6 +8,7 @@ import {
   getSessionAvailabilityRequest,
 } from '@/api/booking'
 import BookingHallCanvas from '@/components/BookingHallCanvas.vue'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import type {
   BookingHallLayout,
@@ -31,6 +32,7 @@ const emit = defineEmits<{
 }>()
 
 const authStore = useAuthStore()
+const { showToast } = useToast()
 const CHECKOUT_CONTEXT_KEY = 'submeet_checkout_context'
 
 const availability = ref<SessionAvailabilityResponse | null>(null)
@@ -107,6 +109,36 @@ const normalizedLoyaltySpend = computed(() => {
 })
 
 const payableTotal = computed(() => Math.max(0, selectedTotal.value - normalizedLoyaltySpend.value))
+
+const availableTicketsTotal = computed(() => {
+  if (!availability.value) {
+    return 0
+  }
+
+  return Number(availability.value.summary.seats_free) + Number(availability.value.summary.standing_available)
+})
+
+const capacityTotal = computed(() => {
+  if (!availability.value) {
+    return 0
+  }
+
+  return Number(availability.value.summary.seats_total) + Number(availability.value.summary.standing_total)
+})
+
+const lowAvailabilityLabel = computed(() => {
+  if (!availability.value || availableTicketsTotal.value <= 0) {
+    return ''
+  }
+
+  const capacity = capacityTotal.value
+  const isLowByCount = availableTicketsTotal.value <= 10
+  const isLowByPercent = capacity > 0 && availableTicketsTotal.value / capacity <= 0.12
+
+  return isLowByCount || isLowByPercent
+    ? `Осталось мало мест: ${availableTicketsTotal.value}`
+    : ''
+})
 
 const loyaltyToEarn = computed(() => {
   if (!authStore.isAuthenticated || !loyaltyAccount.value) {
@@ -412,6 +444,14 @@ const submitBooking = async () => {
         ? `Бронь создана. Место удерживается за вами до ${formatDateTime(response.booking.reserved_until)}.`
         : 'Бронь успешно создана.'
 
+    showToast({
+      kind: 'success',
+      title: 'Бронь создана',
+      message: response.booking.reserved_until
+        ? `Место удерживается до ${formatDateTime(response.booking.reserved_until)}.`
+        : 'Место закреплено за вами.',
+    })
+
     emit('booked', response.booking)
 
     selectedElementId.value = null
@@ -420,6 +460,11 @@ const submitBooking = async () => {
     await loadAvailability({ preserveFeedback: true, preserveSelection: false })
   } catch (requestError) {
     bookingError.value = extractErrorMessage(requestError, 'Не удалось создать бронь.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось создать бронь',
+      message: bookingError.value,
+    })
   } finally {
     reserveLoading.value = false
   }
@@ -443,10 +488,20 @@ const submitPurchase = async () => {
 
     latestBooking.value = response.booking
     bookingSuccess.value = 'Переадресуем на защищенную страницу оплаты...'
+    showToast({
+      kind: 'success',
+      title: 'Переходим к оплате',
+      message: 'После успешной оплаты билет появится в профиле.',
+    })
     emit('booked', response.booking)
     redirectToCheckout(response.booking)
   } catch (requestError) {
     bookingError.value = extractErrorMessage(requestError, 'Не удалось перейти к оплате.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось перейти к оплате',
+      message: bookingError.value,
+    })
   } finally {
     purchaseLoading.value = false
   }
@@ -621,6 +676,12 @@ onBeforeUnmount(() => {
 
               <article v-if="availability" class="soft-card">
                 <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Доступность</p>
+                <div
+                  v-if="lowAvailabilityLabel"
+                  class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"
+                >
+                  {{ lowAvailabilityLabel }}
+                </div>
                 <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                   <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                     <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Свободные места</p>

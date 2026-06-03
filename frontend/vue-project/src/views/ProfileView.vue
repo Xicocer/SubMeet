@@ -11,11 +11,18 @@ import {
 } from '@/api/booking'
 import { getWantToGoEventsRequest, removeWantToGoRequest } from '@/api/events'
 import { getUserRecommendationsRequest } from '@/api/recommendations'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import type { UpdateProfilePayload } from '@/types/auth'
 import type { LoyaltyAccountResponse, UserBooking } from '@/types/booking'
 import type { WantToGoEvent } from '@/types/event'
 import type { RecommendationItem } from '@/types/recommendation'
+import {
+  downloadBookingCalendarFile,
+  getRecentlyViewedEvents,
+  shareEvent,
+  type RecentlyViewedEvent,
+} from '@/utils/eventUx'
 import {
   formatDate,
   formatDateForInput,
@@ -28,6 +35,7 @@ import { formatPhoneMask, isPhoneMaskComplete, normalizePhoneComparable } from '
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const { showToast } = useToast()
 
 const successMessage = ref('')
 const cabinetMessage = ref('')
@@ -41,6 +49,7 @@ const wantToGoActionIds = ref<number[]>([])
 const bookings = ref<UserBooking[]>([])
 const wantToGoEvents = ref<WantToGoEvent[]>([])
 const recommendations = ref<RecommendationItem[]>([])
+const recentlyViewedEvents = ref<RecentlyViewedEvent[]>([])
 const loyaltyAccount = ref<LoyaltyAccountResponse | null>(null)
 
 const form = reactive<UpdateProfilePayload>({
@@ -170,6 +179,20 @@ const recommendationLocation = (item: RecommendationItem) => {
   return item.venue_address || item.hall_name || item.city || 'Площадка уточняется'
 }
 
+const recentlyViewedDateLabel = (eventItem: RecentlyViewedEvent) => {
+  if (eventItem.next_session_start) {
+    return formatDateTime(eventItem.next_session_start)
+  }
+
+  return eventItem.is_teaser ? 'Продажи скоро' : 'Дата уточняется'
+}
+
+const recentlyViewedPriceLabel = (eventItem: RecentlyViewedEvent) => {
+  return eventItem.minimum_price !== null
+    ? formatPrice(eventItem.minimum_price)
+    : 'Цена уточняется'
+}
+
 const paymentActionLabel = (booking: UserBooking) => {
   return booking.status === 'payment_pending' ? 'Продолжить оплату' : 'Оплатить'
 }
@@ -283,6 +306,7 @@ const loadRecommendations = async () => {
 
 const loadCabinetData = async () => {
   cabinetError.value = ''
+  recentlyViewedEvents.value = getRecentlyViewedEvents()
 
   await Promise.all([
     loadBookings(),
@@ -316,10 +340,21 @@ const syncReturnedPayment = async () => {
         ? 'Оплата подтверждена. Билет уже доступен для скачивания.'
         : 'Оплата подтверждена. PDF-билет еще генерируется в фоне и скоро появится в кабинете.'
       await loadLoyalty()
+      showToast({
+        kind: 'success',
+        title: 'Оплата подтверждена',
+        message: 'Билет можно открыть или скачать в личном кабинете.',
+      })
     } else if (response.booking.status === 'payment_pending') {
       cabinetMessage.value = 'Платеж еще обрабатывается. Обнови страницу чуть позже.'
+      showToast({
+        kind: 'info',
+        title: 'Платеж еще обрабатывается',
+        message: 'Обнови статус чуть позже.',
+      })
     } else {
       cabinetMessage.value = 'Статус платежа обновлен.'
+      showToast('Статус платежа обновлен')
     }
   } catch (requestError) {
     console.error(requestError)
@@ -369,6 +404,11 @@ const updateProfile = async () => {
 
     const response = await authStore.updateProfile(payload)
     successMessage.value = response.message
+    showToast({
+      kind: 'success',
+      title: 'Профиль сохранен',
+      message: 'Данные аккаунта обновлены.',
+    })
     syncForm()
   } catch (requestError) {
     console.error(requestError)
@@ -389,13 +429,28 @@ const payBooking = async (bookingId: number) => {
 
     if (!confirmationUrl) {
       cabinetError.value = 'Платежная ссылка пока не сформирована.'
+      showToast({
+        kind: 'warning',
+        title: 'Платежная ссылка не готова',
+        message: 'Попробуй повторить действие чуть позже.',
+      })
       return
     }
 
+    showToast({
+      kind: 'info',
+      title: 'Открываем оплату',
+      message: 'После оплаты билет появится в профиле.',
+    })
     window.location.href = confirmationUrl
   } catch (requestError) {
     console.error(requestError)
     cabinetError.value = extractErrorMessage(requestError, 'Не удалось перейти к оплате.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось перейти к оплате',
+      message: cabinetError.value,
+    })
   } finally {
     bookingActionIds.value = bookingActionIds.value.filter((id) => id !== bookingId)
   }
@@ -411,9 +466,19 @@ const cancelBooking = async (bookingId: number) => {
     replaceBooking(response.booking)
     await loadLoyalty()
     cabinetMessage.value = 'Бронь отменена, места снова доступны в продаже.'
+    showToast({
+      kind: 'success',
+      title: 'Бронь отменена',
+      message: 'Места снова доступны другим пользователям.',
+    })
   } catch (requestError) {
     console.error(requestError)
     cabinetError.value = extractErrorMessage(requestError, 'Не удалось отменить бронь.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось отменить бронь',
+      message: cabinetError.value,
+    })
   } finally {
     bookingActionIds.value = bookingActionIds.value.filter((id) => id !== bookingId)
   }
@@ -436,9 +501,19 @@ const downloadTicket = async (bookingId: number) => {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(objectUrl)
+    showToast({
+      kind: 'success',
+      title: 'PDF скачан',
+      message: 'Билет готов к печати или показу на входе.',
+    })
   } catch (requestError) {
     console.error(requestError)
     cabinetError.value = extractErrorMessage(requestError, 'Не удалось скачать билет.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось скачать билет',
+      message: cabinetError.value,
+    })
   } finally {
     ticketDownloadIds.value = ticketDownloadIds.value.filter((id) => id !== bookingId)
   }
@@ -453,11 +528,56 @@ const removeWantToGo = async (eventId: number) => {
     await removeWantToGoRequest(eventId)
     wantToGoEvents.value = wantToGoEvents.value.filter((event) => event.id !== eventId)
     cabinetMessage.value = 'Событие убрано из списка «Хочу сходить».'
+    showToast({
+      kind: 'success',
+      title: 'Убрали из списка',
+      message: 'Событие больше не отображается в “Хочу сходить”.',
+    })
   } catch (requestError) {
     console.error(requestError)
     cabinetError.value = 'Не удалось обновить список «Хочу сходить».'
+    showToast({
+      kind: 'error',
+      title: 'Не удалось обновить список',
+      message: cabinetError.value,
+    })
   } finally {
     wantToGoActionIds.value = wantToGoActionIds.value.filter((id) => id !== eventId)
+  }
+}
+
+const addBookingToCalendar = (booking: UserBooking) => {
+  const created = downloadBookingCalendarFile(booking)
+
+  showToast({
+    kind: created ? 'success' : 'warning',
+    title: created ? 'Файл календаря скачан' : 'Дата события не указана',
+    message: created
+      ? 'Открой .ics-файл, чтобы добавить событие в календарь.'
+      : 'Для календаря нужна точная дата и время сеанса.',
+  })
+}
+
+const shareRecentlyViewed = async (eventItem: RecentlyViewedEvent) => {
+  try {
+    const result = await shareEvent(eventItem)
+
+    if (result === 'cancelled') {
+      return
+    }
+
+    showToast({
+      kind: 'success',
+      title: result === 'copied' ? 'Ссылка скопирована' : 'Событие готово к отправке',
+      message: 'Можно быстро вернуться к событию или отправить его друзьям.',
+    })
+  } catch (shareError) {
+    console.error(shareError)
+    showToast({
+      kind: 'error',
+      title: 'Не удалось поделиться',
+      message: 'Попробуй открыть событие и скопировать ссылку из адресной строки.',
+    })
   }
 }
 
@@ -649,6 +769,13 @@ onMounted(loadProfile)
                     {{ isTicketDownloading(nextPlannedBooking.id) ? 'Готовим PDF...' : 'Скачать PDF' }}
                   </button>
                   <button
+                    type="button"
+                    class="secondary-button"
+                    @click="addBookingToCalendar(nextPlannedBooking)"
+                  >
+                    В календарь
+                  </button>
+                  <button
                     v-if="nextPlannedBooking.can_pay"
                     type="button"
                     class="primary-button"
@@ -745,6 +872,78 @@ onMounted(loadProfile)
         <section class="app-panel p-6 sm:p-8">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
+              <span class="info-chip">Недавно просмотренные</span>
+              <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">
+                Можно вернуться к выбору
+              </h3>
+            </div>
+            <RouterLink to="/events" class="secondary-button">
+              Вся афиша
+            </RouterLink>
+          </div>
+
+          <div v-if="recentlyViewedEvents.length > 0" class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <article
+              v-for="eventItem in recentlyViewedEvents"
+              :key="eventItem.id"
+              class="group overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm shadow-slate-900/5"
+            >
+              <RouterLink :to="`/events/${eventItem.id}`" class="block">
+                <div class="relative h-40 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900">
+                  <img
+                    v-if="eventItem.poster_url"
+                    :src="eventItem.poster_url"
+                    :alt="eventItem.title"
+                    class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+                    loading="lazy"
+                  />
+                  <div class="absolute inset-x-0 top-0 flex justify-between p-4">
+                    <span class="rounded-full bg-slate-950/60 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-white">
+                      {{ eventItem.category_name || 'Событие' }}
+                    </span>
+                    <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">
+                      {{ eventItem.age_rating_label || '0+' }}
+                    </span>
+                  </div>
+                </div>
+              </RouterLink>
+
+              <div class="p-4">
+                <h4 class="line-clamp-2 text-xl font-semibold leading-tight text-slate-950">
+                  {{ eventItem.title }}
+                </h4>
+                <div class="mt-4 rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p class="text-sm font-semibold text-slate-950">
+                    {{ recentlyViewedDateLabel(eventItem) }}
+                  </p>
+                  <p class="mt-1 text-sm font-semibold text-blue-700">
+                    {{ recentlyViewedPriceLabel(eventItem) }}
+                  </p>
+                </div>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <RouterLink :to="`/events/${eventItem.id}`" class="primary-button px-4 py-2.5 text-sm">
+                    Открыть
+                  </RouterLink>
+                  <button
+                    type="button"
+                    class="secondary-button px-4 py-2.5 text-sm"
+                    @click="shareRecentlyViewed(eventItem)"
+                  >
+                    Поделиться
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="mt-6 rounded-[1.6rem] border border-dashed border-slate-200 bg-slate-50/75 p-6 text-sm leading-6 text-slate-500">
+            Когда ты откроешь карточку события, она появится здесь. Удобно, если хочется сравнить несколько вариантов и вернуться к ним позже.
+          </div>
+        </section>
+
+        <section class="app-panel p-6 sm:p-8">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
               <span class="info-chip">Мои билеты</span>
               <h3 class="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">Купленные билеты</h3>
             </div>
@@ -787,6 +986,9 @@ onMounted(loadProfile)
                 <RouterLink v-if="booking.session?.event_id" :to="`/events/${booking.session.event_id}`" class="secondary-button">
                   Перейти к событию
                 </RouterLink>
+                <button type="button" class="secondary-button" @click="addBookingToCalendar(booking)">
+                  В календарь
+                </button>
                 <button type="button" class="primary-button" :disabled="isTicketDownloading(booking.id)" @click="downloadTicket(booking.id)">
                   {{ isTicketDownloading(booking.id) ? 'Готовим PDF...' : 'Скачать PDF' }}
                 </button>
@@ -844,6 +1046,9 @@ onMounted(loadProfile)
                 </button>
                 <button v-if="booking.can_cancel" type="button" class="secondary-button" :disabled="isBookingActionLoading(booking.id)" @click="cancelBooking(booking.id)">
                   Отменить бронь
+                </button>
+                <button type="button" class="secondary-button" @click="addBookingToCalendar(booking)">
+                  В календарь
                 </button>
                 <RouterLink v-if="booking.session?.event_id" :to="`/events/${booking.session.event_id}`" class="secondary-button">
                   К событию

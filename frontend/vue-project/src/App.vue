@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ToastHost from '@/components/ToastHost.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getInitials } from '@/utils/format'
 
@@ -229,5 +230,7 @@ onMounted(async () => {
         <RouterView />
       </main>
     </div>
+
+    <ToastHost />
   </div>
 </template>
