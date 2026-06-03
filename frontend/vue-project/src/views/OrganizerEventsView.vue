@@ -12,6 +12,7 @@ import {
   updateOrganizerEventRequest,
   updateOrganizerSessionRequest,
   rewriteOrganizerEventDescriptionRequest,
+  suggestOrganizerEventTagsRequest,
 } from '@/api/events'
 import {
   createOrganizerHallRentalRequest,
@@ -28,6 +29,7 @@ import type {
   OrganizerEvent,
   OrganizerEventPayload,
   OrganizerEventStatus,
+  OrganizerEventTagSuggestion,
   OrganizerSessionPayload,
   PaginatedResponse,
 } from '@/types/event'
@@ -107,6 +109,10 @@ const sessionSaving = ref(false)
 const copywriting = ref(false)
 const copywriterTips = ref<string[]>([])
 const copywriterPreview = ref('')
+const tagSuggesting = ref(false)
+const tagSuggestions = ref<OrganizerEventTagSuggestion[]>([])
+const tagSuggestionError = ref('')
+const tagSuggestionAttempted = ref(false)
 const error = ref('')
 const success = ref('')
 const eventPreviewOpen = ref(false)
@@ -275,6 +281,13 @@ const canRewriteDescription = computed(() => {
   )
 })
 
+const canSuggestTags = computed(() => {
+  return (
+    !tagSuggesting.value &&
+    (normalizedEventTitle.value.length >= 3 || normalizedEventDescription.value.length >= 10)
+  )
+})
+
 const canSubmitRentalRequest = computed(() => {
   return (
     activeEvent.value !== null &&
@@ -340,6 +353,65 @@ const parseEventTags = (value: string) => {
         .filter((tag) => tag.length >= 2),
     ),
   ).slice(0, 12)
+}
+
+const normalizeTagForCompare = (tag: string) => tag.trim().toLocaleLowerCase('ru-RU')
+
+const isSuggestedTagSelected = (tagName: string) => {
+  const normalizedTag = normalizeTagForCompare(tagName)
+
+  return parseEventTags(eventForm.tags).some((tag) => normalizeTagForCompare(tag) === normalizedTag)
+}
+
+const addSuggestedTag = (suggestion: OrganizerEventTagSuggestion) => {
+  const currentTags = parseEventTags(eventForm.tags)
+
+  if (isSuggestedTagSelected(suggestion.name)) {
+    showToast({
+      kind: 'info',
+      title: 'Тег уже добавлен',
+      message: `"${suggestion.name}" уже есть в списке тегов события.`,
+    })
+    return
+  }
+
+  if (currentTags.length >= 12) {
+    showToast({
+      kind: 'warning',
+      title: 'Достигнут лимит тегов',
+      message: 'Для одного события можно указать до 12 тегов.',
+    })
+    return
+  }
+
+  eventForm.tags = [...currentTags, suggestion.name].join(', ')
+  showToast({
+    kind: 'success',
+    title: 'Тег добавлен',
+    message: `"${suggestion.name}" добавлен в форму события.`,
+  })
+}
+
+const addAllSuggestedTags = () => {
+  const currentTags = parseEventTags(eventForm.tags)
+  const currentSet = new Set(currentTags.map(normalizeTagForCompare))
+  const nextTags = [...currentTags]
+
+  tagSuggestions.value.forEach((suggestion) => {
+    const normalizedTag = normalizeTagForCompare(suggestion.name)
+
+    if (!currentSet.has(normalizedTag) && nextTags.length < 12) {
+      nextTags.push(suggestion.name)
+      currentSet.add(normalizedTag)
+    }
+  })
+
+  eventForm.tags = nextTags.join(', ')
+  showToast({
+    kind: 'success',
+    title: 'Теги добавлены',
+    message: 'Все подходящие предложения добавлены в форму события.',
+  })
 }
 
 const eventDraftStorageKey = () => {
@@ -541,6 +613,12 @@ const resetCopywriterPreview = () => {
   copywriterTips.value = []
 }
 
+const resetTagSuggestions = () => {
+  tagSuggestions.value = []
+  tagSuggestionError.value = ''
+  tagSuggestionAttempted.value = false
+}
+
 const resetRentalRequestForm = () => {
   Object.assign(rentalRequestForm, createRentalRequestDraft())
   selectedRentalDates.value = []
@@ -704,6 +782,7 @@ const startCreateEvent = (options: { restoreDraft?: boolean } = {}) => {
   error.value = ''
   success.value = ''
   resetCopywriterPreview()
+  resetTagSuggestions()
   applyingDraft.value = true
   Object.assign(eventForm, createEventDraft())
 
@@ -739,6 +818,7 @@ const fillEventForm = (event: OrganizerEvent) => {
   eventForm.tags = Array.isArray(event.tags) ? event.tags.map((tag) => tag.name).join(', ') : ''
   eventForm.status = event.status === 'published' || event.status === 'pending_review' ? 'pending_review' : 'draft'
   draftRestored.value = false
+  resetTagSuggestions()
   applyingDraft.value = false
 }
 
@@ -986,6 +1066,52 @@ const rewriteDescription = async () => {
     })
   } finally {
     copywriting.value = false
+  }
+}
+
+const suggestEventTags = async () => {
+  if (!canSuggestTags.value) {
+    tagSuggestionError.value = 'Напиши название или описание, чтобы Митя понял контекст события.'
+    return
+  }
+
+  error.value = ''
+  success.value = ''
+  tagSuggestionError.value = ''
+  tagSuggestionAttempted.value = true
+  tagSuggesting.value = true
+
+  try {
+    const response = await suggestOrganizerEventTagsRequest({
+      title: normalizedEventTitle.value || null,
+      description: normalizedEventDescription.value || null,
+      category_id: eventForm.category_id ? Number(eventForm.category_id) : null,
+      category_name: selectedFormCategory.value?.name ?? null,
+      age_rating_id: eventForm.age_rating_id ? Number(eventForm.age_rating_id) : null,
+      age_rating_label: selectedFormAgeRating.value?.label ?? null,
+      already_selected_tags: parseEventTags(eventForm.tags),
+    })
+
+    tagSuggestions.value = response.tags
+    success.value = response.message
+
+    showToast({
+      kind: response.tags.length > 0 ? (response.mode === 'ai' ? 'success' : 'info') : 'warning',
+      title: response.tags.length > 0 ? 'Теги подобраны' : 'Подходящих тегов нет',
+      message: response.tags.length > 0
+        ? 'Нажми на чипы, которые хочешь добавить в форму события.'
+        : 'Попробуй подробнее описать формат, настроение или аудиторию события.',
+    })
+  } catch (requestError) {
+    console.error(requestError)
+    tagSuggestionError.value = extractErrorMessage(requestError, 'Не удалось подобрать теги для мероприятия.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось подобрать теги',
+      message: tagSuggestionError.value,
+    })
+  } finally {
+    tagSuggesting.value = false
   }
 }
 
@@ -1755,11 +1881,67 @@ onMounted(async () => {
             </div>
 
             <div class="sm:col-span-2">
-              <label class="field-label" for="organizer-event-tags">Теги</label>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <label class="field-label" for="organizer-event-tags">Теги</label>
+                <button
+                  type="button"
+                  class="secondary-button px-4 py-2.5 text-sm"
+                  :disabled="!canSuggestTags"
+                  @click="suggestEventTags"
+                >
+                  {{ tagSuggesting ? 'Подбираем теги...' : 'Предложить теги' }}
+                </button>
+              </div>
               <input id="organizer-event-tags" v-model="eventForm.tags" type="text" class="field-input" placeholder="рок, open air, живая музыка" />
               <p class="mt-2 text-xs leading-5 text-slate-400">
                 Через запятую. Они помогут в поиске и рекомендациях.
               </p>
+              <p v-if="tagSuggestionError" class="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {{ tagSuggestionError }}
+              </p>
+              <div
+                v-if="tagSuggestions.length > 0"
+                class="mt-4 rounded-[1.5rem] border border-blue-100 bg-blue-50/50 p-4"
+              >
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p class="text-sm font-semibold text-slate-900">Митя предложил теги</p>
+                    <p class="text-xs leading-5 text-slate-500">Нажми на подходящие чипы, чтобы добавить их в форму.</p>
+                  </div>
+                  <button type="button" class="secondary-button px-4 py-2.5 text-sm" @click="addAllSuggestedTags">
+                    Добавить все подходящие
+                  </button>
+                </div>
+
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <button
+                    v-for="suggestion in tagSuggestions"
+                    :key="suggestion.name"
+                    type="button"
+                    class="rounded-full border px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
+                    :class="isSuggestedTagSelected(suggestion.name)
+                      ? 'border-slate-200 bg-white text-slate-400'
+                      : suggestion.exists
+                        ? 'border-blue-200 bg-white text-blue-700 shadow-sm shadow-blue-100'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
+                    @click="addSuggestedTag(suggestion)"
+                  >
+                    #{{ suggestion.name }}
+                    <span
+                      v-if="!suggestion.exists"
+                      class="ml-2 rounded-full bg-white/80 px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.2em]"
+                    >
+                      новый
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div
+                v-else-if="tagSuggestionAttempted && !tagSuggesting && !tagSuggestionError"
+                class="mt-4 rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-500"
+              >
+                Пока не получилось подобрать теги. Добавь пару деталей про жанр, настроение или аудиторию события и попробуй еще раз.
+              </div>
             </div>
 
             <div>

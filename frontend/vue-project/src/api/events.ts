@@ -14,6 +14,8 @@ import type {
   OrganizerEventMutationResponse,
   OrganizerEventsFilters,
   OrganizerEventPayload,
+  OrganizerEventTagSuggestionPayload,
+  OrganizerEventTagSuggestionResponse,
   OrganizerSessionMutationResponse,
   OrganizerSessionPayload,
   PaginatedResponse,
@@ -99,6 +101,17 @@ export const rewriteOrganizerEventDescriptionRequest = async (
 ) => {
   const { data } = await eventApi.post<OrganizerEventCopywriterResponse>(
     '/organizer/events/copywriter/rewrite',
+    payload,
+  )
+
+  return data
+}
+
+export const suggestOrganizerEventTagsRequest = async (
+  payload: OrganizerEventTagSuggestionPayload,
+) => {
+  const { data } = await eventApi.post<OrganizerEventTagSuggestionResponse>(
+    '/organizer/events/suggest-tags',
     payload,
   )
 

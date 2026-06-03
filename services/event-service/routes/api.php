@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\InternalRecommendationController;
 use App\Http\Controllers\Api\OrganizerDashboardController;
 use App\Http\Controllers\Api\OrganizerEventCopywriterController;
 use App\Http\Controllers\Api\OrganizerEventController;
+use App\Http\Controllers\Api\OrganizerEventTagSuggestionController;
 use App\Http\Controllers\Api\OrganizerHallUsageController;
 use App\Http\Controllers\Api\OrganizerSessionController;
 use App\Http\Controllers\Api\SessionController;
@@ -54,6 +55,7 @@ Route::middleware('organizer.auth')->prefix('organizer')->group(function () {
     Route::get('/dashboard', OrganizerDashboardController::class);
     Route::get('/halls/{id}/usage', OrganizerHallUsageController::class);
     Route::post('/events/copywriter/rewrite', [OrganizerEventCopywriterController::class, 'rewrite']);
+    Route::post('/events/suggest-tags', [OrganizerEventTagSuggestionController::class, 'suggest']);
     Route::get('/events', [OrganizerEventController::class, 'myEvents']);
     Route::post('/events', [OrganizerEventController::class, 'store']);
     Route::put('/events/{id}', [OrganizerEventController::class, 'update']);

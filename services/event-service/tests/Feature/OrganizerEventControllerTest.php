@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AgeRating;
 use App\Models\Category;
 use App\Models\Event;
+use App\Models\Tag;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -229,6 +230,53 @@ class OrganizerEventControllerTest extends TestCase
             ->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.title', 'Мой первый концерт')
             ->assertJsonPath('data.0.organizer_id', 77);
+    }
+
+    public function test_organizer_can_request_event_tag_suggestions_without_creating_tags(): void
+    {
+        $category = Category::query()->create([
+            'name' => 'Concert',
+            'slug' => 'concert',
+        ]);
+
+        $ageRating = AgeRating::query()->create([
+            'label' => '16+',
+            'min_age' => 16,
+        ]);
+
+        Tag::query()->create([
+            'name' => 'concert',
+            'slug' => 'concert',
+        ]);
+
+        config([
+            'services.concierge.provider' => 'openai',
+            'ai.providers.openai.key' => null,
+        ]);
+
+        $this->fakeOrganizerAuth(77);
+
+        $this->withHeader('Authorization', 'Bearer organizer-token')
+            ->postJson('/api/organizer/events/suggest-tags', [
+                'title' => 'Rock concert evening',
+                'description' => 'Live music for friends after work.',
+                'category_id' => $category->id,
+                'age_rating_id' => $ageRating->id,
+                'already_selected_tags' => ['music'],
+            ])
+            ->assertOk()
+            ->assertJsonStructure([
+                'tags' => [
+                    [
+                        'name',
+                        'exists',
+                    ],
+                ],
+            ])
+            ->assertJsonPath('tags.0.name', 'concert')
+            ->assertJsonPath('tags.0.exists', true);
+
+        $this->assertSame(1, Tag::query()->count());
     }
 
     public function test_non_organizer_cannot_access_organizer_routes(): void

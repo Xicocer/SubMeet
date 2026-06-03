@@ -171,6 +171,27 @@ export interface OrganizerEventCopywriterResponse {
   mode: 'ai' | 'fallback'
 }
 
+export interface OrganizerEventTagSuggestionPayload {
+  title: string | null
+  description: string | null
+  category_id: number | null
+  category_name?: string | null
+  age_rating_id: number | null
+  age_rating_label?: string | null
+  already_selected_tags: string[]
+}
+
+export interface OrganizerEventTagSuggestion {
+  name: string
+  exists: boolean
+}
+
+export interface OrganizerEventTagSuggestionResponse {
+  message: string
+  tags: OrganizerEventTagSuggestion[]
+  mode: 'ai' | 'fallback'
+}
+
 export type OrganizerSessionStatus = 'scheduled' | 'cancelled' | 'completed'
 
 export interface OrganizerSessionPayload {
