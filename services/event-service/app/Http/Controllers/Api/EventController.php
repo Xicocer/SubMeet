@@ -323,13 +323,13 @@ class EventController extends Controller
             'available_sessions_count' => (int) ($event->getAttribute('available_sessions_count') ?? 0),
             'minimum_price' => $minimumPrice !== null ? round($minimumPrice, 2) : null,
             'next_session' => $nextSession ? $this->transformSession($nextSession) : null,
+            'created_at' => $event->created_at?->toISOString(),
         ];
 
         if ($detailed) {
             $payload['organizer_id'] = $event->organizer_id;
             $payload['status'] = $event->status;
             $payload['tentative_dates'] = $isTeaser ? $this->loadTentativeDates($event->id) : [];
-            $payload['created_at'] = $event->created_at?->toISOString();
             $payload['updated_at'] = $event->updated_at?->toISOString();
         }
 

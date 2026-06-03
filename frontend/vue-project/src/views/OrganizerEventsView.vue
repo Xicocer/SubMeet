@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import {
   cancelOrganizerSessionRequest,
   changeOrganizerEventStatusRequest,
@@ -19,6 +19,7 @@ import {
   getOrganizerHallRentalRequestsRequest,
   getPublicHallsRequest,
 } from '@/api/halls'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import type {
   AgeRating,
@@ -34,6 +35,8 @@ import type { HallAvailabilityDay, HallAvailabilityResponse, HallRentalRequest, 
 import { formatDateTime, formatPrice } from '@/utils/format'
 
 const authStore = useAuthStore()
+const { showToast } = useToast()
+const ORGANIZER_EVENT_DRAFT_KEY = 'submeet.organizerEventDraft'
 const pad2 = (value: number) => String(value).padStart(2, '0')
 const toDateKey = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 const toMonthValue = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`
@@ -106,6 +109,10 @@ const copywriterTips = ref<string[]>([])
 const copywriterPreview = ref('')
 const error = ref('')
 const success = ref('')
+const eventPreviewOpen = ref(false)
+const draftSavedAt = ref<string | null>(null)
+const draftRestored = ref(false)
+const applyingDraft = ref(false)
 
 const statusFilter = ref<OrganizerEventStatus | ''>('')
 const selectedEventId = ref<number | null>(null)
@@ -292,6 +299,38 @@ const organizerDisplayName = computed(() => {
   return authStore.user?.organizer_profile?.company_name || authStore.user?.full_name || 'Организатор'
 })
 
+const selectedFormCategory = computed(() => {
+  return categories.value.find((category) => category.id === Number(eventForm.category_id)) ?? null
+})
+
+const selectedFormAgeRating = computed(() => {
+  return ageRatings.value.find((ageRating) => ageRating.id === Number(eventForm.age_rating_id)) ?? null
+})
+
+const previewEventStatus = computed<OrganizerEventStatus>(() => {
+  return activeEvent.value?.status ?? eventForm.status
+})
+
+const eventFormHasContent = computed(() => {
+  return (
+    eventForm.title.trim() !== ''
+    || eventForm.description.trim() !== ''
+    || eventForm.poster_url.trim() !== ''
+    || eventForm.tags.trim() !== ''
+    || eventForm.category_id !== ''
+    || eventForm.age_rating_id !== ''
+    || eventForm.status !== 'draft'
+  )
+})
+
+const draftSavedAtLabel = computed(() => {
+  if (!draftSavedAt.value) {
+    return ''
+  }
+
+  return formatDateTime(draftSavedAt.value)
+})
+
 const parseEventTags = (value: string) => {
   return Array.from(
     new Set(
@@ -301,6 +340,83 @@ const parseEventTags = (value: string) => {
         .filter((tag) => tag.length >= 2),
     ),
   ).slice(0, 12)
+}
+
+const eventDraftStorageKey = () => {
+  return `${ORGANIZER_EVENT_DRAFT_KEY}:${authStore.user?.id ?? 'guest'}`
+}
+
+const clearSavedEventDraft = () => {
+  window.localStorage.removeItem(eventDraftStorageKey())
+  draftSavedAt.value = null
+  draftRestored.value = false
+}
+
+const saveEventDraftToStorage = () => {
+  if (eventFormMode.value !== 'create' || !eventFormHasContent.value || applyingDraft.value) {
+    return
+  }
+
+  const savedAt = new Date().toISOString()
+
+  window.localStorage.setItem(
+    eventDraftStorageKey(),
+    JSON.stringify({
+      savedAt,
+      form: {
+        title: eventForm.title,
+        description: eventForm.description,
+        poster_url: eventForm.poster_url,
+        category_id: eventForm.category_id,
+        age_rating_id: eventForm.age_rating_id,
+        tags: eventForm.tags,
+        status: eventForm.status,
+      },
+    }),
+  )
+
+  draftSavedAt.value = savedAt
+}
+
+const restoreEventDraftFromStorage = () => {
+  try {
+    const rawDraft = window.localStorage.getItem(eventDraftStorageKey())
+
+    if (!rawDraft) {
+      return false
+    }
+
+    const parsedDraft = JSON.parse(rawDraft) as {
+      savedAt?: string
+      form?: Partial<ReturnType<typeof createEventDraft>>
+    }
+
+    if (!parsedDraft.form) {
+      return false
+    }
+
+    Object.assign(eventForm, {
+      ...createEventDraft(),
+      ...parsedDraft.form,
+      status: parsedDraft.form.status === 'pending_review' ? 'pending_review' : 'draft',
+    })
+
+    draftSavedAt.value = parsedDraft.savedAt ?? null
+    draftRestored.value = true
+
+    return true
+  } catch {
+    clearSavedEventDraft()
+    return false
+  }
+}
+
+const openEventPreview = () => {
+  eventPreviewOpen.value = true
+}
+
+const closeEventPreview = () => {
+  eventPreviewOpen.value = false
 }
 
 const extractErrorMessage = (requestError: any, fallback: string) => {
@@ -359,6 +475,21 @@ const eventStatusClasses = (status: OrganizerEventStatus) => {
       return 'border-slate-200 bg-slate-100 text-slate-700'
     default:
       return 'border-amber-200 bg-amber-50 text-amber-700'
+  }
+}
+
+const eventStatusHint = (status: OrganizerEventStatus) => {
+  switch (status) {
+    case 'pending_review':
+      return 'На модерации: администратор проверяет карточку, после публикации можно открывать продажи.'
+    case 'published':
+      return 'Можно создавать сеансы: событие опубликовано и готово к расписанию.'
+    case 'cancelled':
+      return 'Событие отменено и недоступно для новых продаж.'
+    case 'archived':
+      return 'Событие в архиве: удобно хранить историю, но не работать с продажами.'
+    default:
+      return 'Черновик: можно спокойно дописать описание, выбрать площадку и отправить на модерацию позже.'
   }
 }
 
@@ -446,6 +577,19 @@ const loadHallAvailability = async () => {
     hallAvailability.value = null
   } finally {
     rentalCalendarLoading.value = false
+  }
+}
+
+const rentalRequestStatusHint = (status: HallRentalRequestStatus) => {
+  switch (status) {
+    case 'approved':
+      return 'Площадка подтвердила аренду, по этой заявке можно создать сеанс.'
+    case 'rejected':
+      return 'Площадка отклонила слот, выбери другую дату или другую площадку.'
+    case 'cancelled':
+      return 'Заявка отменена и больше не участвует в создании сеансов.'
+    default:
+      return 'Ждет ответа площадки: владелец должен подтвердить или отклонить выбранные даты.'
   }
 }
 
@@ -548,7 +692,9 @@ const selectRentalCalendarDay = (day: HallAvailabilityDay | null) => {
   rentalRangeAnchor.value = null
 }
 
-const startCreateEvent = () => {
+const startCreateEvent = (options: { restoreDraft?: boolean } = {}) => {
+  const restoreDraft = options.restoreDraft ?? true
+
   eventFormMode.value = 'create'
   selectedEventId.value = null
   sessions.value = []
@@ -558,12 +704,33 @@ const startCreateEvent = () => {
   error.value = ''
   success.value = ''
   resetCopywriterPreview()
+  applyingDraft.value = true
   Object.assign(eventForm, createEventDraft())
+
+  if (restoreDraft) {
+    restoreEventDraftFromStorage()
+  } else {
+    draftRestored.value = false
+    draftSavedAt.value = null
+  }
+
+  applyingDraft.value = false
   resetSessionForm()
   resetRentalRequestForm()
 }
 
+const clearEventForm = () => {
+  clearSavedEventDraft()
+  startCreateEvent({ restoreDraft: false })
+  showToast({
+    kind: 'info',
+    title: 'Форма очищена',
+    message: 'Локальный черновик тоже удален.',
+  })
+}
+
 const fillEventForm = (event: OrganizerEvent) => {
+  applyingDraft.value = true
   eventForm.title = event.title
   eventForm.description = event.description || ''
   eventForm.poster_url = event.poster_url || ''
@@ -571,6 +738,8 @@ const fillEventForm = (event: OrganizerEvent) => {
   eventForm.age_rating_id = event.age_rating?.id ? String(event.age_rating.id) : ''
   eventForm.tags = Array.isArray(event.tags) ? event.tags.map((tag) => tag.name).join(', ') : ''
   eventForm.status = event.status === 'published' || event.status === 'pending_review' ? 'pending_review' : 'draft'
+  draftRestored.value = false
+  applyingDraft.value = false
 }
 
 const loadLookups = async () => {
@@ -665,6 +834,7 @@ const selectEvent = (event: OrganizerEvent) => {
   eventFormMode.value = 'edit'
   selectedEventId.value = event.id
   error.value = ''
+  eventPreviewOpen.value = false
   fillEventForm(event)
   resetCopywriterPreview()
   resetSessionForm()
@@ -747,6 +917,16 @@ const submitEvent = async () => {
         : await updateOrganizerEventRequest(selectedEventId.value, payload)
 
     success.value = response.message
+    if (eventFormMode.value === 'create') {
+      clearSavedEventDraft()
+    }
+    showToast({
+      kind: 'success',
+      title: payload.status === 'pending_review' ? 'Событие отправлено на модерацию' : 'Событие сохранено',
+      message: payload.status === 'pending_review'
+        ? 'Администратор проверит карточку перед публикацией.'
+        : 'Черновик сохранен, можно продолжить подготовку.',
+    })
     eventSaving.value = false
 
     try {
@@ -758,6 +938,11 @@ const submitEvent = async () => {
   } catch (requestError) {
     console.error(requestError)
     error.value = extractErrorMessage(requestError, 'Не удалось сохранить мероприятие.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось сохранить мероприятие',
+      message: error.value,
+    })
   } finally {
     eventSaving.value = false
   }
@@ -786,9 +971,19 @@ const rewriteDescription = async () => {
     copywriterPreview.value = response.description
     copywriterTips.value = response.tips
     success.value = `${response.message} Проверь вариант перед заменой.`
+    showToast({
+      kind: response.mode === 'ai' ? 'success' : 'info',
+      title: 'Вариант описания готов',
+      message: 'Проверь текст в окне предпросмотра перед заменой.',
+    })
   } catch (requestError) {
     console.error(requestError)
     error.value = extractErrorMessage(requestError, 'Не удалось улучшить описание через AI.')
+    showToast({
+      kind: 'error',
+      title: 'AI не смог улучшить описание',
+      message: error.value,
+    })
   } finally {
     copywriting.value = false
   }
@@ -801,12 +996,22 @@ const applyCopywriterPreview = () => {
 
   eventForm.description = copywriterPreview.value
   success.value = 'Описание заменено AI-вариантом. Перед публикацией можно еще отредактировать текст вручную.'
+  showToast({
+    kind: 'success',
+    title: 'Описание заменено',
+    message: 'Текст уже вставлен в форму события.',
+  })
   resetCopywriterPreview()
 }
 
 const rejectCopywriterPreview = () => {
   resetCopywriterPreview()
   success.value = 'AI-вариант отклонен. В форме осталось описание, написанное организатором.'
+  showToast({
+    kind: 'info',
+    title: 'AI-вариант отклонен',
+    message: 'Исходное описание осталось без изменений.',
+  })
 }
 
 const changeEventStatus = async (status: Extract<OrganizerEventStatus, 'cancelled' | 'archived'>) => {
@@ -831,10 +1036,20 @@ const changeEventStatus = async (status: Extract<OrganizerEventStatus, 'cancelle
   try {
     const response = await changeOrganizerEventStatusRequest(activeEvent.value.id, { status })
     success.value = response.message
+    showToast({
+      kind: status === 'cancelled' ? 'warning' : 'success',
+      title: status === 'cancelled' ? 'Мероприятие отменено' : 'Мероприятие отправлено в архив',
+      message: response.message,
+    })
     await loadEvents(1, response.event.id)
   } catch (requestError) {
     console.error(requestError)
     error.value = extractErrorMessage(requestError, 'Не удалось изменить статус мероприятия.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось изменить статус',
+      message: error.value,
+    })
   } finally {
     eventSaving.value = false
   }
@@ -860,11 +1075,21 @@ const submitRentalRequest = async () => {
 
     success.value = response.message
     rentalCalendarOpen.value = false
+    showToast({
+      kind: 'success',
+      title: 'Заявка отправлена площадке',
+      message: 'Теперь она будет ждать подтверждения владельца площадки.',
+    })
     resetRentalRequestForm()
     await loadRentalRequests(activeEvent.value.id)
   } catch (requestError) {
     console.error(requestError)
     rentalCalendarError.value = extractErrorMessage(requestError, 'Не удалось отправить заявку на аренду площадки.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось отправить заявку',
+      message: rentalCalendarError.value,
+    })
   } finally {
     rentalRequestSaving.value = false
   }
@@ -904,11 +1129,21 @@ const submitSession = async () => {
       : await createOrganizerSessionRequest(activeEvent.value.id, payload)
 
     success.value = response.message
+    showToast({
+      kind: 'success',
+      title: sessionForm.id ? 'Сеанс обновлен' : 'Сеанс создан',
+      message: 'Расписание события обновлено.',
+    })
     resetSessionForm()
     await loadSessions(activeEvent.value.id)
   } catch (requestError) {
     console.error(requestError)
     error.value = extractErrorMessage(requestError, 'Не удалось сохранить сеанс.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось сохранить сеанс',
+      message: error.value,
+    })
   } finally {
     sessionSaving.value = false
   }
@@ -932,11 +1167,21 @@ const cancelSession = async (session: EventSession) => {
   try {
     const response = await cancelOrganizerSessionRequest(session.id)
     success.value = response.message
+    showToast({
+      kind: 'warning',
+      title: 'Сеанс отменен',
+      message: 'Он больше не будет доступен для новых продаж.',
+    })
     resetSessionForm()
     await loadSessions(activeEvent.value.id)
   } catch (requestError) {
     console.error(requestError)
     error.value = extractErrorMessage(requestError, 'Не удалось отменить сеанс.')
+    showToast({
+      kind: 'error',
+      title: 'Не удалось отменить сеанс',
+      message: error.value,
+    })
   } finally {
     sessionSaving.value = false
   }
@@ -949,6 +1194,23 @@ const changePage = async (page: number) => {
 
   await loadEvents(page, selectedEventId.value)
 }
+
+watch(
+  eventForm,
+  () => {
+    if (applyingDraft.value || eventFormMode.value !== 'create') {
+      return
+    }
+
+    if (!eventFormHasContent.value) {
+      clearSavedEventDraft()
+      return
+    }
+
+    saveEventDraftToStorage()
+  },
+  { deep: true },
+)
 
 onMounted(async () => {
   if (!authStore.user) {
@@ -1011,6 +1273,102 @@ onMounted(async () => {
           <button type="button" class="primary-button justify-center" @click="applyCopywriterPreview">
             Заменить описание
           </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="eventPreviewOpen"
+      class="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm"
+      @click.self="closeEventPreview"
+    >
+      <section class="w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-2xl shadow-slate-950/25">
+        <div class="flex flex-col gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <span class="info-chip">Предпросмотр карточки</span>
+            <h3 class="mt-3 text-2xl font-semibold text-slate-950">
+              Так событие будет ощущаться в афише
+            </h3>
+            <p class="mt-2 text-sm leading-6 text-slate-500">
+              Это локальный предпросмотр. Публичная страница откроется только после публикации.
+            </p>
+          </div>
+
+          <button type="button" class="secondary-button px-4 py-2.5" @click="closeEventPreview">
+            Закрыть
+          </button>
+        </div>
+
+        <div class="grid gap-0 lg:grid-cols-[0.92fr_1.08fr]">
+          <div class="relative min-h-[23rem] bg-gradient-to-br from-slate-950 via-blue-950 to-blue-700">
+            <img
+              v-if="eventForm.poster_url.trim()"
+              :src="eventForm.poster_url.trim()"
+              :alt="eventForm.title || 'Постер мероприятия'"
+              class="h-full min-h-[23rem] w-full object-cover"
+            />
+            <div class="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-slate-950/25"></div>
+            <div class="absolute left-5 top-5 flex flex-wrap gap-2">
+              <span class="rounded-full bg-slate-950/70 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-white">
+                {{ selectedFormCategory?.name || 'Категория' }}
+              </span>
+              <span class="rounded-full bg-white/18 px-3 py-1 text-xs font-semibold text-white">
+                {{ selectedFormAgeRating?.label || '0+' }}
+              </span>
+            </div>
+            <div class="absolute inset-x-0 bottom-0 p-5">
+              <span class="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
+                {{ eventStatusLabel(previewEventStatus) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="p-6 sm:p-8">
+            <h4 class="text-3xl font-semibold leading-tight text-slate-950">
+              {{ eventForm.title || 'Название мероприятия' }}
+            </h4>
+            <p class="mt-4 whitespace-pre-line text-sm leading-7 text-slate-600 sm:text-base">
+              {{ eventForm.description || 'Описание появится здесь. Расскажи, что ждет гостя, какой формат у события и почему стоит прийти.' }}
+            </p>
+
+            <div v-if="parseEventTags(eventForm.tags).length > 0" class="mt-5 flex flex-wrap gap-2">
+              <span
+                v-for="tag in parseEventTags(eventForm.tags)"
+                :key="tag"
+                class="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700"
+              >
+                #{{ tag }}
+              </span>
+            </div>
+
+            <div class="mt-6 grid gap-3 sm:grid-cols-2">
+              <article class="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Статус</p>
+                <p class="mt-2 text-sm font-semibold leading-6 text-slate-950">
+                  {{ eventStatusHint(previewEventStatus) }}
+                </p>
+              </article>
+              <article class="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Организатор</p>
+                <p class="mt-2 text-sm font-semibold leading-6 text-slate-950">
+                  {{ organizerDisplayName }}
+                </p>
+              </article>
+            </div>
+
+            <div class="mt-6 flex flex-wrap gap-3">
+              <RouterLink
+                v-if="activeEvent?.status === 'published'"
+                :to="`/events/${activeEvent.id}`"
+                class="primary-button"
+              >
+                Открыть публичную карточку
+              </RouterLink>
+              <button type="button" class="secondary-button" @click="closeEventPreview">
+                Вернуться к редактированию
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -1202,7 +1560,7 @@ onMounted(async () => {
             </h3>
           </div>
 
-          <button type="button" class="primary-button px-4 py-3" @click="startCreateEvent">
+          <button type="button" class="primary-button px-4 py-3" @click="() => startCreateEvent()">
             Новое
           </button>
         </div>
@@ -1253,6 +1611,9 @@ onMounted(async () => {
                 {{ eventStatusLabel(event.status) }}
               </span>
             </div>
+            <p class="mt-3 text-sm leading-6 text-slate-500">
+              {{ eventStatusHint(event.status) }}
+            </p>
           </button>
         </div>
 
@@ -1304,13 +1665,46 @@ onMounted(async () => {
               </p>
             </div>
 
-            <div v-if="activeEvent" class="flex flex-wrap gap-3">
-              <button type="button" class="danger-button" :disabled="eventSaving" @click="changeEventStatus('cancelled')">
+            <div class="flex flex-wrap gap-3">
+              <button type="button" class="secondary-button" @click="openEventPreview">
+                Предпросмотр карточки
+              </button>
+              <RouterLink
+                v-if="activeEvent?.status === 'published'"
+                :to="`/events/${activeEvent.id}`"
+                class="secondary-button"
+              >
+                Открыть публичную
+              </RouterLink>
+              <button v-if="activeEvent" type="button" class="danger-button" :disabled="eventSaving" @click="changeEventStatus('cancelled')">
                 Отменить
               </button>
-              <button type="button" class="secondary-button" :disabled="eventSaving" @click="changeEventStatus('archived')">
+              <button v-if="activeEvent" type="button" class="secondary-button" :disabled="eventSaving" @click="changeEventStatus('archived')">
                 В архив
               </button>
+            </div>
+          </div>
+
+          <div class="mt-6 grid gap-3 lg:grid-cols-2">
+            <div class="rounded-[1.5rem] border border-blue-100 bg-blue-50/70 px-5 py-4 text-sm leading-6 text-blue-950">
+              <p class="font-semibold">
+                {{ eventStatusLabel(eventForm.status) }}
+              </p>
+              <p class="mt-1">
+                {{ eventStatusHint(eventForm.status) }}
+              </p>
+            </div>
+
+            <div
+              v-if="eventFormMode === 'create' && (draftSavedAt || draftRestored)"
+              class="rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 px-5 py-4 text-sm leading-6 text-emerald-950"
+            >
+              <p class="font-semibold">
+                {{ draftRestored ? 'Черновик восстановлен' : 'Черновик автосохранен' }}
+              </p>
+              <p class="mt-1">
+                {{ draftSavedAtLabel ? `Последнее сохранение: ${draftSavedAtLabel}` : 'Данные сохраняются в браузере автоматически.' }}
+              </p>
             </div>
           </div>
 
@@ -1385,7 +1779,7 @@ onMounted(async () => {
               </div>
 
               <div class="flex flex-col gap-3 sm:flex-row">
-                <button type="button" class="secondary-button" @click="startCreateEvent">
+                <button type="button" class="secondary-button" @click="clearEventForm">
                   Очистить форму
                 </button>
 
@@ -1598,6 +1992,9 @@ onMounted(async () => {
                     </p>
                     <p class="mt-1 text-xs text-slate-500">
                       {{ formatRentalDuration(request.duration_minutes) }} · {{ formatPrice(request.hourly_rate) }}/час
+                    </p>
+                    <p class="mt-2 text-sm leading-6 text-slate-500">
+                      {{ rentalRequestStatusHint(request.status) }}
                     </p>
                     <p v-if="request.response_note" class="mt-2 text-sm leading-6 text-slate-500">
                       Ответ площадки: {{ request.response_note }}

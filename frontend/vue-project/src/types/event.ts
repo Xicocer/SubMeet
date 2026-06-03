@@ -43,6 +43,7 @@ export interface EventSummaryBase {
   available_sessions_count?: number | null
   minimum_price?: number | string | null
   next_session?: EventSession | null
+  created_at?: string | null
 }
 
 export interface PublicEvent extends EventSummaryBase {}

@@ -30,6 +30,15 @@ interface CatalogSection {
   accent: 'blue' | 'graphite' | 'amber'
 }
 
+interface EventBadge {
+  label: string
+  classes: string
+}
+
+const SEARCH_HISTORY_KEY = 'submeet.catalogSearchHistory'
+const SEARCH_HISTORY_LIMIT = 8
+const DAY_IN_MS = 24 * 60 * 60 * 1000
+
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -42,6 +51,7 @@ const loading = ref(false)
 const error = ref('')
 const filtersPanelOpen = ref(false)
 const wantToGoUpdatingIds = ref<number[]>([])
+const searchHistory = ref<string[]>([])
 
 const filters = reactive({
   search: '',
@@ -237,6 +247,60 @@ const eventPosterFallback = (event: PublicEvent) => {
   return event.category?.name || 'Submeet'
 }
 
+const parseDate = (value?: string | null) => {
+  if (!value) {
+    return null
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const startOfUtcDay = (date: Date) => {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+}
+
+const startOfUtcWeek = (date: Date) => {
+  const day = date.getUTCDay() || 7
+  return startOfUtcDay(date) - (day - 1) * DAY_IN_MS
+}
+
+const eventBadges = (event: PublicEvent): EventBadge[] => {
+  const badges: EventBadge[] = []
+  const now = new Date()
+  const createdAt = parseDate(event.created_at)
+  const sessionStart = parseDate(event.next_session?.start_time)
+
+  if (createdAt && now.getTime() - createdAt.getTime() <= 7 * DAY_IN_MS) {
+    badges.push({
+      label: 'Новое',
+      classes: 'bg-white text-blue-700 border-white/70',
+    })
+  }
+
+  if (sessionStart) {
+    if (startOfUtcDay(sessionStart) === startOfUtcDay(now)) {
+      badges.push({
+        label: 'Сегодня',
+        classes: 'bg-blue-600 text-white border-blue-400/60',
+      })
+    } else {
+      const weekStart = startOfUtcWeek(now)
+      const nextWeekStart = weekStart + 7 * DAY_IN_MS
+      const sessionDay = startOfUtcDay(sessionStart)
+
+      if (sessionDay >= weekStart && sessionDay < nextWeekStart) {
+        badges.push({
+          label: 'На этой неделе',
+          classes: 'bg-slate-950/72 text-white border-white/20',
+        })
+      }
+    }
+  }
+
+  return badges
+}
+
 const sectionAccentClass = (accent: CatalogSection['accent']) => {
   if (accent === 'amber') {
     return 'border-amber-200 bg-amber-50 text-amber-800'
@@ -255,6 +319,53 @@ const getQueryValue = (value?: LocationQueryValue | LocationQueryValue[] | null)
   }
 
   return value ?? ''
+}
+
+const loadSearchHistory = () => {
+  try {
+    const rawHistory = window.localStorage.getItem(SEARCH_HISTORY_KEY)
+    const parsedHistory = rawHistory ? JSON.parse(rawHistory) as unknown : []
+
+    searchHistory.value = Array.isArray(parsedHistory)
+      ? parsedHistory.filter((item): item is string => typeof item === 'string' && item.trim() !== '').slice(0, SEARCH_HISTORY_LIMIT)
+      : []
+  } catch {
+    searchHistory.value = []
+  }
+}
+
+const persistSearchHistory = () => {
+  window.localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory.value))
+}
+
+const rememberSearchQuery = (query: string) => {
+  const normalizedQuery = query.trim()
+
+  if (normalizedQuery.length < 2) {
+    return
+  }
+
+  searchHistory.value = [
+    normalizedQuery,
+    ...searchHistory.value.filter((item) => item.toLowerCase() !== normalizedQuery.toLowerCase()),
+  ].slice(0, SEARCH_HISTORY_LIMIT)
+
+  persistSearchHistory()
+}
+
+const clearSearchHistory = () => {
+  searchHistory.value = []
+  persistSearchHistory()
+}
+
+const applySearchFromHistory = async (query: string) => {
+  filters.search = query
+  filters.page = 1
+
+  await router.replace({
+    name: 'events',
+    query: buildQuery(1),
+  })
 }
 
 const syncFiltersFromQuery = () => {
@@ -374,6 +485,9 @@ const loadEvents = async () => {
     const response = await getEventsRequest(params)
 
     events.value = response.data
+    if (params.search) {
+      rememberSearchQuery(params.search)
+    }
     pagination.current_page = response.current_page
     pagination.last_page = response.last_page
     pagination.per_page = response.per_page
@@ -472,6 +586,8 @@ watch(
 )
 
 onMounted(async () => {
+  loadSearchHistory()
+
   if (authStore.token && !authStore.user) {
     await authStore.fetchMe()
   }
@@ -527,6 +643,14 @@ onMounted(async () => {
                 {{ heroDescription }}
               </p>
               <div class="mt-4 flex flex-wrap gap-2">
+                <span
+                  v-for="badge in eventBadges(featuredEvent)"
+                  :key="badge.label"
+                  class="rounded-full border px-3 py-1 text-xs font-semibold"
+                  :class="badge.classes"
+                >
+                  {{ badge.label }}
+                </span>
                 <span class="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/90">
                   {{ eventDateLabel(featuredEvent) }}
                 </span>
@@ -571,6 +695,28 @@ onMounted(async () => {
           </button>
         </div>
       </form>
+
+      <div v-if="searchHistory.length > 0" class="mt-3 flex flex-wrap items-center gap-2">
+        <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+          Недавно искали
+        </span>
+        <button
+          v-for="query in searchHistory"
+          :key="query"
+          type="button"
+          class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+          @click="applySearchFromHistory(query)"
+        >
+          {{ query }}
+        </button>
+        <button
+          type="button"
+          class="rounded-full px-3 py-1.5 text-sm font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          @click="clearSearchHistory"
+        >
+          Очистить
+        </button>
+      </div>
 
       <div class="mt-4 flex flex-wrap items-center gap-2">
         <button
@@ -721,6 +867,17 @@ onMounted(async () => {
                   </span>
                   <span class="rounded-full border border-white/18 bg-white/14 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white backdrop-blur">
                     {{ event.age_rating?.label || '0+' }}
+                  </span>
+                </div>
+
+                <div v-if="eventBadges(event).length > 0" class="absolute left-4 top-14 flex flex-wrap gap-2">
+                  <span
+                    v-for="badge in eventBadges(event)"
+                    :key="badge.label"
+                    class="rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] shadow-sm shadow-slate-950/20 backdrop-blur"
+                    :class="badge.classes"
+                  >
+                    {{ badge.label }}
                   </span>
                 </div>
 

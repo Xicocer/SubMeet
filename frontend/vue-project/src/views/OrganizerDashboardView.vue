@@ -79,6 +79,7 @@ const topEvents = computed(() => bookingDashboard.value?.top_events ?? [])
 const topEventsMax = computed(() => {
   return Math.max(1, ...topEvents.value.map((item) => Number(item.revenue ?? 0)))
 })
+const upcomingSessionCalendarItems = computed(() => (eventDashboard.value?.upcoming_sessions ?? []).slice(0, 8))
 
 const loadDashboard = async () => {
   loading.value = true
@@ -117,6 +118,56 @@ const formatShortDay = (value: string) => {
     day: '2-digit',
     month: 'short',
   }).format(date)
+}
+
+const formatCalendarDayNumber = (value?: string | null) => {
+  const date = value ? new Date(value) : null
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return '--'
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+  }).format(date)
+}
+
+const formatCalendarDayMonth = (value?: string | null) => {
+  const date = value ? new Date(value) : null
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return 'Дата'
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    month: 'short',
+  }).format(date)
+}
+
+const formatCalendarTime = (value?: string | null) => {
+  const date = value ? new Date(value) : null
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return 'Время'
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+const isTodaySession = (value?: string | null) => {
+  const date = value ? new Date(value) : null
+  const now = new Date()
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return false
+  }
+
+  return date.getUTCFullYear() === now.getUTCFullYear()
+    && date.getUTCMonth() === now.getUTCMonth()
+    && date.getUTCDate() === now.getUTCDate()
 }
 
 const barHeight = (item: OrganizerDashboardSalesDay | OrganizerDashboardTopEvent) => {
@@ -414,6 +465,30 @@ onMounted(async () => {
             <RouterLink to="/organizer/events" class="secondary-button">
               Управлять
             </RouterLink>
+          </div>
+
+          <div v-if="upcomingSessionCalendarItems.length > 0" class="mt-7 flex gap-3 overflow-x-auto pb-2">
+            <article
+              v-for="session in upcomingSessionCalendarItems"
+              :key="`calendar-${session.id}`"
+              class="min-w-[8.5rem] rounded-[1.35rem] border px-4 py-4"
+              :class="isTodaySession(session.start_time)
+                ? 'border-blue-200 bg-blue-50 text-blue-950'
+                : 'border-slate-200 bg-slate-50 text-slate-950'"
+            >
+              <p class="text-xs font-semibold uppercase tracking-[0.2em]" :class="isTodaySession(session.start_time) ? 'text-blue-700' : 'text-slate-400'">
+                {{ isTodaySession(session.start_time) ? 'Сегодня' : formatCalendarDayMonth(session.start_time) }}
+              </p>
+              <p class="mt-2 text-3xl font-semibold tracking-tight">
+                {{ formatCalendarDayNumber(session.start_time) }}
+              </p>
+              <p class="mt-2 truncate text-sm font-semibold">
+                {{ formatCalendarTime(session.start_time) }}
+              </p>
+              <p class="mt-1 truncate text-xs opacity-70">
+                {{ session.event_title || `Событие #${session.event_id}` }}
+              </p>
+            </article>
           </div>
 
           <div v-if="eventDashboard?.upcoming_sessions.length" class="mt-7 space-y-4">
